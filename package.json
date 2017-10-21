@@ -1,0 +1,23 @@
+{
+  "name": "vsam",
+  "version": "1.0.0",
+  "description": "Interact with VSAM files on z/OS",
+  "main": "index.js",
+  "keywords": [
+    "z/OS",
+    "VSAM"
+  ],
+  "author": "John Barboza",
+  "license": "ISC",
+  "dependencies": {
+     "node-gyp": "^3.6.0"
+   },
+  "devDependencies": {
+     "async": "^1.5.0"
+   },
+   "scripts": {
+     "compile": "node-gyp build",
+     "test": "node test.js"
+   },
+   "gypfile": true
+}

@@ -13,6 +13,20 @@ class VsamFile : public node::ObjectWrap {
   static v8::Persistent<v8::Function> constructor;
 
  private:
+  struct LayoutItem {
+    enum DataType {
+      STRING
+    };
+
+    std::vector<char> name;
+    int maxLength;
+    DataType type;
+    LayoutItem(v8::String::Utf8Value& n, int m, DataType t) :
+      name(n.length()), maxLength(m), type(t) {
+      memcpy(&name[0], *n, n.length());
+    }
+  };
+
   explicit VsamFile(const std::string& path);
   ~VsamFile();
 
@@ -39,6 +53,7 @@ class VsamFile : public node::ObjectWrap {
   v8::Isolate* isolate_;
   std::string path_;
   std::string key_;
+  std::vector<LayoutItem> layout_;
   unsigned keylen_, reclen_;
   FILE *stream_;
   void *buf_;

@@ -16,6 +16,9 @@ using v8::Value;
 using v8::Exception;
 using v8::HandleScope;
 using v8::Handle;
+using v8::Array;
+using v8::Integer;
+using v8::MaybeLocal;
 
 Persistent<Function> VsamFile::constructor;
 
@@ -41,23 +44,23 @@ void VsamFile::ReadCallback(uv_work_t* req, int status) {
   char* buf = (char*)(obj->buf_);
 
   if (buf != NULL) {
-    std::vector<char> key, data;
-    transform(buf, buf + obj->keylen_, back_inserter(key), [](char c) -> char {
-      __e2a_l(&c, 1);
-      return c;
-    });
-    transform(buf + obj->keylen_, buf + obj->reclen_, back_inserter(data), [](char c) -> char {
-      __e2a_l(&c, 1);
-      return c;
-    });
 
     const unsigned argc = 2;
     HandleScope scope(obj->isolate_);
     Local<Object> record = Object::New(obj->isolate_);
-    record->Set(v8::String::NewFromUtf8(obj->isolate_, "key"),
-                node::Buffer::Copy(obj->isolate_, key.data(), key.size()).ToLocalChecked());
-    record->Set(v8::String::NewFromUtf8(obj->isolate_, "data"),
-                node::Buffer::Copy(obj->isolate_, data.data(), data.size()).ToLocalChecked());
+    for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
+      if (i->type == LayoutItem::STRING) { 
+        std::string str; 
+        transform(buf, buf + i->maxLength, back_inserter(str), [](char c) -> char {
+          __e2a_l(&c, 1);
+          return c;
+        });
+        record->Set(String::NewFromUtf8(obj->isolate_, &(i->name[0])),
+                //node::Buffer::Copy(obj->isolate_, key.data(), key.size()).ToLocalChecked());
+                String::NewFromUtf8(obj->isolate_, str.c_str()));
+      }
+      buf += i->maxLength;
+    }
     Local<Value> argv[argc] = { record, v8::Null(obj->isolate_) };
 
     auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
@@ -201,14 +204,14 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
     // Invoked as constructor: `new MyObject(...)`
 
     // Check the number of arguments passed.
-    if (args.Length() < 2) {
+    if (args.Length() < 3) {
       // Throw an Error that is passed back to JavaScript
       isolate->ThrowException(Exception::TypeError(
           String::NewFromUtf8(isolate, "Wrong number of arguments")));
       return;
     }
 
-    if (!args[0]->IsString() || !args[1]->IsFunction()) {
+    if (!args[0]->IsString() || !args[2]->IsFunction()) {
       isolate->ThrowException(Exception::TypeError(
           String::NewFromUtf8(isolate, "Wrong arguments")));
       return;
@@ -221,8 +224,30 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
     });
     VsamFile* obj = new VsamFile(path);
 
-    Handle<Function> arg1 = Handle<Function>::Cast(args[1]);
-    obj->cb_ = Persistent<Function>(isolate, arg1);
+    Local<Object> schema = args[1]->ToObject();
+    Local<Array> properties = schema->GetPropertyNames();
+    int len = properties->Length();
+    for (int i = 0; i < properties->Length(); ++i) {
+      String::Utf8Value name(properties->Get(i)->ToString());
+
+      Local<Object> item = Local<Object>::Cast(schema->Get(properties->Get(i)));
+      if (item.IsEmpty()) {
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Json is incorrect")));
+        return;
+      }
+
+      Local<Value> length = Local<Value>::Cast(item->Get( Local<String>(String::NewFromUtf8(isolate, "maxLength"))));
+      if (length.IsEmpty() || !length->IsNumber()) {
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Json is incorrect")));
+        return;
+      }
+      
+      obj->layout_.push_back(LayoutItem(name, length->ToInteger()->Value(), LayoutItem::STRING));
+    }
+
+
+    Handle<Function> callback = Handle<Function>::Cast(args[2]);
+    obj->cb_ = Persistent<Function>(isolate, callback);
     obj->isolate_ = isolate;
 
     obj->Wrap(args.This());
@@ -243,8 +268,8 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
 void VsamFile::NewInstance(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
 
-  const unsigned argc = 2;
-  Local<Value> argv[argc] = { args[0] , args[1] };
+  const unsigned argc = 3;
+  Local<Value> argv[argc] = { args[0] , args[1], args[2] };
   Local<Function> cons = Local<Function>::New(isolate, constructor);
   Local<Context> context = isolate->GetCurrentContext();
   Local<Object> instance =

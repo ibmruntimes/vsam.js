@@ -34,6 +34,22 @@ static void print_amrc() {
 }
 
 
+void VsamFile::UpdateCallback(uv_work_t* req, int status) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  delete req;
+  //TODO: what if the update failed (buf != NULL)
+
+  if (status == UV_ECANCELED)
+    return;
+
+  const unsigned argc = 1;
+  HandleScope scope(obj->isolate_);
+  Local<Value> argv[argc] = { v8::Null(obj->isolate_) };
+  auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
+  fn->Call(Null(obj->isolate_), argc, argv);
+}
+
+
 void VsamFile::ReadCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
   delete req;
@@ -44,7 +60,6 @@ void VsamFile::ReadCallback(uv_work_t* req, int status) {
   char* buf = (char*)(obj->buf_);
 
   if (buf != NULL) {
-
     const unsigned argc = 2;
     HandleScope scope(obj->isolate_);
     Local<Object> record = Object::New(obj->isolate_);
@@ -130,6 +145,17 @@ void VsamFile::Read(uv_work_t* req) {
 }
 
 
+void VsamFile::Update(uv_work_t* req) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  int ret = fupdate(obj->buf_, obj->reclen_, obj->stream_);
+  if (ret == 0) {
+    //TODO: error
+  }
+  free(obj->buf_);
+  obj->buf_ = NULL;
+}
+
+
 void VsamFile::Close(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
   fclose(obj->stream_);
@@ -141,7 +167,7 @@ void VsamFile::Open(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
 
 #pragma convert("IBM-1047")
-  obj->stream_ = fopen(obj->path_.c_str(), "rb,type=record");
+  obj->stream_ = fopen(obj->path_.c_str(), "rb+,type=record");
 #pragma convert(pop)
 
   fldata_t info;
@@ -192,6 +218,7 @@ void VsamFile::Init(Isolate* isolate) {
   NODE_SET_PROTOTYPE_METHOD(tpl, "fd", FileDescriptor);
   NODE_SET_PROTOTYPE_METHOD(tpl, "read", Read);
   NODE_SET_PROTOTYPE_METHOD(tpl, "find", Find);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "update", Update);
   NODE_SET_PROTOTYPE_METHOD(tpl, "close", Close);
 
   constructor.Reset(isolate, tpl->GetFunction());
@@ -309,6 +336,49 @@ void VsamFile::Close(const FunctionCallbackInfo<Value>& args) {
   obj->isolate_ = isolate;
 
   uv_queue_work(uv_default_loop(), request, Close, CloseCallback);
+}
+
+
+void VsamFile::Update(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+
+  if (args.Length() < 2) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+
+  if (!args[1]->IsFunction()) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  Local<Object> record = args[0]->ToObject();
+  VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
+  obj->buf_ = malloc(obj->reclen_); //TODO: error
+  char* buf = (char*)obj->buf_;
+  for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
+    if (i->type == LayoutItem::STRING) { 
+      Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0])))); //TODO: error if type is not string
+      std::string key (*v8::String::Utf8Value(field));
+      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
+        __a2e_l(&c, 1);
+        return c;
+      });
+      memcpy(buf, key.c_str(), key.length() + 1);
+      buf += i->maxLength; //TODO: error if key length > maxLength
+    }
+  }
+
+  uv_work_t* request = new uv_work_t;
+  request->data = obj;
+
+  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[1]));
+  obj->isolate_ = isolate;
+
+  uv_queue_work(uv_default_loop(), request, Update, UpdateCallback);
 }
 
 

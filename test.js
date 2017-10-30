@@ -34,8 +34,11 @@ vsam( "//'BARBOZA.TEST.VSAM.KSDS'",
       JSON.parse(fs.readFileSync('test.json')),
       (file) => {
         file.find( "00100", (record, err) => {
-          console.log(JSON.stringify(record));
-          printUntilEnd(file);
+          record.name = "JOHN";
+          file.update(record, (err) => {
+            console.log(JSON.stringify(record));
+            printUntilEnd(file);
+          });
         });
       }
 );

@@ -1,7 +1,9 @@
+#!/usr/bin/env node
 const vsam = require("./build/Release/vsam.node");
 const async = require('async');
 const fs = require('fs');
 
+console.log("*************** update.js ****************");
 
 function printUntilEnd(file) {
   var end = false;

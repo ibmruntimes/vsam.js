@@ -1,0 +1,14 @@
+{
+  "key": { 
+    "type": "string",
+    "maxLength": 6
+  },
+  "name": {
+    "type": "string",
+    "maxLength": 10
+  },
+  "gender": {
+    "type": "string",
+    "maxLength": 10
+  }
+}

@@ -92,21 +92,6 @@ void VsamFile::ReadCallback(uv_work_t* req, int status) {
 }
 
 
-void VsamFile::CloseCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-
-  if (status == UV_ECANCELED)
-    return;
-
-  const unsigned argc = 1;
-  HandleScope scope(obj->isolate_);
-  Local<Value> argv[argc] = { v8::Null(obj->isolate_) };
-  auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
-  fn->Call(Null(obj->isolate_), argc, argv);
-}
-
-
 void VsamFile::Find(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
 
@@ -156,19 +141,11 @@ void VsamFile::Update(uv_work_t* req) {
 }
 
 
-void VsamFile::Close(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  fclose(obj->stream_);
-  obj->stream_ = NULL;
-}
-
-
 void VsamFile::Open(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
 
-#pragma convert("IBM-1047")
-  obj->stream_ = fopen(obj->path_.c_str(), "rb+,type=record");
-#pragma convert(pop)
+  if (obj->stream_ == NULL)
+    return;
 
   fldata_t info;
   fldata(obj->stream_, NULL, &info);
@@ -184,9 +161,19 @@ void VsamFile::OpenCallback(uv_work_t* req, int status) {
   if (status == UV_ECANCELED)
     return;
 
-  const unsigned argc = 1;
+  const unsigned argc = 2;
   HandleScope scope(obj->isolate_);
-  Local<Value> argv[argc] = { obj->handle()  };
+  Local<Value> argv[argc];
+  if (obj->keylen_ != obj->layout_[0].maxLength) {
+    argv[0] = Null(obj->isolate_);
+    argv[1] = Exception::TypeError(
+                String::NewFromUtf8(obj->isolate_, "Incorrect key length"));
+  }
+  else {
+    argv[0] = obj->handle();
+    argv[1] = Null(obj->isolate_);
+  }
+  
   auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
   fn->Call(Null(obj->isolate_), argc, argv);
 }
@@ -194,19 +181,26 @@ void VsamFile::OpenCallback(uv_work_t* req, int status) {
 
 VsamFile::VsamFile(const std::string& path) :
     path_(path),
-    stream_(NULL),
-    keylen_(0),
+#pragma convert("IBM-1047")
+    stream_(fopen(path.c_str(), "ab+,type=record")),
+#pragma convert(pop)
+    keylen_(-1),
     buf_(NULL) {
+
+  if (stream_ == NULL)
+    return;
 
   uv_work_t* request = new uv_work_t;
   request->data = this;
   uv_queue_work(uv_default_loop(), request, Open, OpenCallback);
 }
 
+
 VsamFile::~VsamFile() {
   if (stream_ != NULL)
     fclose(stream_);
 }
+
 
 void VsamFile::Init(Isolate* isolate) {
   // Prepare constructor template
@@ -249,11 +243,15 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
       __a2e_l(&c, 1);
       return c;
     });
-    VsamFile* obj = new VsamFile(path);
+    std::unique_ptr<VsamFile> obj(new VsamFile(path));
+    if (obj->stream_ == NULL) {
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Error opening VSAM file")));
+        return;
+    }
+
 
     Local<Object> schema = args[1]->ToObject();
     Local<Array> properties = schema->GetPropertyNames();
-    int len = properties->Length();
     for (int i = 0; i < properties->Length(); ++i) {
       String::Utf8Value name(properties->Get(i)->ToString());
 
@@ -276,19 +274,18 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
     Handle<Function> callback = Handle<Function>::Cast(args[2]);
     obj->cb_ = Persistent<Function>(isolate, callback);
     obj->isolate_ = isolate;
-
-    obj->Wrap(args.This());
+    obj.release()->Wrap(args.This());
     args.GetReturnValue().Set(args.This());
-
   } else {
     // Invoked as plain function `MyObject(...)`, turn into construct call.
     const int argc = 1;
     Local<Value> argv[argc] = { args[0] };
     Local<Function> cons = Local<Function>::New(isolate, constructor);
     Local<Context> context = isolate->GetCurrentContext();
-    Local<Object> instance =
-        cons->NewInstance(context, argc, argv).ToLocalChecked();
-    args.GetReturnValue().Set(instance);
+    MaybeLocal<Object> instance =
+        cons->NewInstance(context, argc, argv);
+    if(!instance.IsEmpty())
+      args.GetReturnValue().Set(instance.ToLocalChecked());
   }
 }
 
@@ -299,28 +296,15 @@ void VsamFile::NewInstance(const FunctionCallbackInfo<Value>& args) {
   Local<Value> argv[argc] = { args[0] , args[1], args[2] };
   Local<Function> cons = Local<Function>::New(isolate, constructor);
   Local<Context> context = isolate->GetCurrentContext();
-  Local<Object> instance =
-      cons->NewInstance(context, argc, argv).ToLocalChecked();
+  MaybeLocal<Object> instance = cons->NewInstance(context, argc, argv);
 
-  args.GetReturnValue().Set(instance);
+  if (!instance.IsEmpty())
+    args.GetReturnValue().Set(instance.ToLocalChecked());
 }
 
 
 void VsamFile::Close(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
-
-  if (args.Length() < 1) {
-    // Throw an Error that is passed back to JavaScript
-    isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Wrong number of arguments")));
-    return;
-  }
-
-  if (!args[0]->IsFunction()) {
-    isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Wrong arguments")));
-    return;
-  }
 
   VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
   if (obj->stream_ == NULL) {
@@ -329,13 +313,11 @@ void VsamFile::Close(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  uv_work_t* request = new uv_work_t;
-  request->data = obj;
-
-  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[0]));
-  obj->isolate_ = isolate;
-
-  uv_queue_work(uv_default_loop(), request, Close, CloseCallback);
+  if (fclose(obj->stream_)) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Error closing file")));
+    return;
+  }
 }
 
 

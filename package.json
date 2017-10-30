@@ -13,11 +13,13 @@
      "node-gyp": "^3.6.0"
    },
   "devDependencies": {
-     "async": "^1.5.0"
+     "async": "^1.5.0",
+     "mocha": "^4.0.1",
+     "chai": "^4.1.2"
    },
    "scripts": {
      "compile": "node-gyp build",
-     "test": "node test.js"
+     "test": "./node_modules/.bin/mocha -b -t 4000 --reporter spec"
    },
    "gypfile": true
 }

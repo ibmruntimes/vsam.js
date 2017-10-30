@@ -23,7 +23,7 @@ vsam( "//'SAMPLE.TEST.VSAM.KSDS'",
           else {
             assert(record.key, "0321");
             console.log(`Current details: Name(${record.name}), Gender(${record.gender})`);
-            record.name = "KEVIN";;
+            record.name = "KEVIN";
             file.update(record, (err) => {});
           }
         }

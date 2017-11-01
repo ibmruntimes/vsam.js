@@ -165,6 +165,8 @@ void VsamFile::OpenCallback(uv_work_t* req, int status) {
   HandleScope scope(obj->isolate_);
   Local<Value> argv[argc];
   if (obj->keylen_ != obj->layout_[0].maxLength) {
+    fclose(obj->stream_);
+    obj->stream_ = NULL;
     argv[0] = Null(obj->isolate_);
     argv[1] = Exception::TypeError(
                 String::NewFromUtf8(obj->isolate_, "Incorrect key length"));

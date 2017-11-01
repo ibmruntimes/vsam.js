@@ -73,11 +73,10 @@ describe("Key Sequenced Dataset", function() {
             expect(err).to.have.property('message');;
             expect(err.message).to.have.string('Incorrect key length');;
             done();
-          }
-    );
+          });
   });
 
-  it("should fail to read non-existent dataset", function(done) {
+  it("throws exception for non-existent dataset", function(done) {
     var fcn = function() {
                  vsam( "//'DOES.NOT.EXIST'", 
                  JSON.parse(fs.readFileSync('test/test.json')),
@@ -85,6 +84,43 @@ describe("Key Sequenced Dataset", function() {
     )};
     expect(fcn).to.throw(TypeError);
     done();
+  });
+
+  it("find existing record", function(done) {
+    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            file.find("00100", (record, err) => {
+              assert.ifError(err);
+              expect(record).to.have.property('key');
+              expect(record).to.have.property('name');
+              expect(record).to.have.property('gender');
+              expect(file.close()).to.not.throw;
+              done();
+            });
+          });
+  });
+
+  it("update existing record", function(done) {
+    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            file.find("00100", (record, err) => {
+              record.name = "KEVIN";
+              file.update(record, (err) => {
+                assert.ifError(err);
+                expect(record).to.have.property('key');
+                expect(record).to.have.property('name');
+                expect(record).to.have.property('gender');
+                file.find("00100", (record, err) => {
+                  assert.ifError(err);
+                  assert(record.name, "KEVIN", "name has been updated");
+                  expect(file.close()).to.not.throw;
+                  done();
+                });
+              });
+            });
+          });
   });
 
 });

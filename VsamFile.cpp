@@ -34,6 +34,53 @@ static void print_amrc() {
 }
 
 
+void VsamFile::DeleteCallback(uv_work_t* req, int status) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  delete req;
+  //TODO: what if the write failed (buf != NULL)
+
+  if (status == UV_ECANCELED)
+    return;
+
+  const unsigned argc = 1;
+  HandleScope scope(obj->isolate_);
+  Local<Value> argv[argc];
+  if (obj->lastrc_ != 0) {
+    argv[0] = Exception::TypeError(
+                String::NewFromUtf8(obj->isolate_, "Failed to delete"));
+    obj->lastrc_ = 0;
+  }
+  else
+    argv[0] = v8::Null(obj->isolate_);
+  auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
+  fn->Call(Null(obj->isolate_), argc, argv);
+}
+
+
+void VsamFile::WriteCallback(uv_work_t* req, int status) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  delete req;
+  //TODO: what if the write failed (buf != NULL)
+
+  if (status == UV_ECANCELED)
+    return;
+
+  const unsigned argc = 1;
+  HandleScope scope(obj->isolate_);
+  Local<Value> argv[argc];
+  if (obj->buf_ != NULL) {
+    argv[0] = Exception::TypeError(
+                String::NewFromUtf8(obj->isolate_, "Failed to write"));
+    free(obj->buf_);
+    obj->buf_ = NULL;
+  }
+  else
+    argv[0] = v8::Null(obj->isolate_);
+  auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
+  fn->Call(Null(obj->isolate_), argc, argv);
+}
+
+
 void VsamFile::UpdateCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
   delete req;
@@ -130,6 +177,22 @@ void VsamFile::Read(uv_work_t* req) {
 }
 
 
+void VsamFile::Delete(uv_work_t* req) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  obj->lastrc_ = fdelrec(obj->stream_);
+}
+
+
+void VsamFile::Write(uv_work_t* req) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  int ret = fwrite(obj->buf_, obj->reclen_, 1, obj->stream_);
+  if (ret == 0)
+    return;
+  free(obj->buf_);
+  obj->buf_ = NULL;
+}
+
+
 void VsamFile::Update(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
   int ret = fupdate(obj->buf_, obj->reclen_, obj->stream_);
@@ -187,6 +250,7 @@ VsamFile::VsamFile(const std::string& path) :
     stream_(fopen(path.c_str(), "ab+,type=record")),
 #pragma convert(pop)
     keylen_(-1),
+    lastrc_(0),
     buf_(NULL) {
 
   if (stream_ == NULL)
@@ -215,6 +279,8 @@ void VsamFile::Init(Isolate* isolate) {
   NODE_SET_PROTOTYPE_METHOD(tpl, "read", Read);
   NODE_SET_PROTOTYPE_METHOD(tpl, "find", Find);
   NODE_SET_PROTOTYPE_METHOD(tpl, "update", Update);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "write", Write);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "delete", Delete);
   NODE_SET_PROTOTYPE_METHOD(tpl, "close", Close);
 
   constructor.Reset(isolate, tpl->GetFunction());
@@ -320,6 +386,76 @@ void VsamFile::Close(const FunctionCallbackInfo<Value>& args) {
         String::NewFromUtf8(isolate, "Error closing file")));
     return;
   }
+}
+
+
+void VsamFile::Delete(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+
+  if (args.Length() < 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+
+  if (!args[0]->IsFunction()) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
+  uv_work_t* request = new uv_work_t;
+  request->data = obj;
+
+  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[0]));
+  obj->isolate_ = isolate;
+
+  uv_queue_work(uv_default_loop(), request, Delete, DeleteCallback);
+}
+
+
+void VsamFile::Write(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+
+  if (args.Length() < 2) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+
+  if (!args[1]->IsFunction()) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  Local<Object> record = args[0]->ToObject();
+  VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
+  obj->buf_ = malloc(obj->reclen_); //TODO: error
+  char* buf = (char*)obj->buf_;
+  for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
+    if (i->type == LayoutItem::STRING) { 
+      Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0])))); //TODO: error if type is not string
+      std::string key (*v8::String::Utf8Value(field));
+      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
+        __a2e_l(&c, 1);
+        return c;
+      });
+      memcpy(buf, key.c_str(), key.length() + 1);
+      buf += i->maxLength; //TODO: error if key length > maxLength
+    }
+  }
+
+  uv_work_t* request = new uv_work_t;
+  request->data = obj;
+
+  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[1]));
+  obj->isolate_ = isolate;
+
+  uv_queue_work(uv_default_loop(), request, Write, WriteCallback);
 }
 
 

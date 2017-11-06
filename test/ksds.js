@@ -101,20 +101,59 @@ describe("Key Sequenced Dataset", function() {
           });
   });
 
+  it("write new record after read", function(done) {
+    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            file.read((record, err) => {
+              record.key = "00114";
+              record.name = "FRED";
+              record.gender = "MALE";
+              file.write(record, (err) => {
+                assert.ifError(err);
+                file.find("00114", (record, err) => {
+                  assert.ifError(err);
+                  assert.equal(record.key, "00114", "record has been created");
+                  assert.equal(record.name, "FRED", "created record has correct name");
+                  assert.equal(record.gender, "MALE", "created record has correct gender");
+                  expect(file.close()).to.not.throw;
+                  done();
+                });
+              });
+            });
+          });
+  });
+
   it("update existing record", function(done) {
     vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => {
             file.find("00100", (record, err) => {
+              assert.ifError(err);
               record.name = "KEVIN";
               file.update(record, (err) => {
                 assert.ifError(err);
-                expect(record).to.have.property('key');
-                expect(record).to.have.property('name');
-                expect(record).to.have.property('gender');
                 file.find("00100", (record, err) => {
                   assert.ifError(err);
-                  assert(record.name, "KEVIN", "name has been updated");
+                  assert.equal(record.name, "KEVIN", "name has been updated");
+                  expect(file.close()).to.not.throw;
+                  done();
+                });
+              });
+            });
+          });
+  });
+
+  it("delete existing record", function(done) {
+    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            assert.ifError(err);
+            file.find("00114", (record, err) => {
+              file.delete( (err) => {
+                assert.ifError(err);
+                file.find("00114", (err) => {
+                  assert.ifError(err);
                   expect(file.close()).to.not.throw;
                   done();
                 });

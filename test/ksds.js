@@ -128,12 +128,12 @@ describe("Key Sequenced Dataset", function() {
     vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => {
-            file.find("00100", (record, err) => {
+            file.find("00114", (record, err) => {
               assert.ifError(err);
               record.name = "KEVIN";
               file.update(record, (err) => {
                 assert.ifError(err);
-                file.find("00100", (record, err) => {
+                file.find("00114", (record, err) => {
                   assert.ifError(err);
                   assert.equal(record.name, "KEVIN", "name has been updated");
                   expect(file.close()).to.not.throw;

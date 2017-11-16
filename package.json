@@ -19,7 +19,7 @@
    },
    "scripts": {
      "compile": "node-gyp build",
-     "test": "./node_modules/.bin/mocha -b -t 4000 --reporter spec"
+     "test": "./node_modules/.bin/mocha -b -t 40000 --reporter spec"
    },
    "gypfile": true
 }

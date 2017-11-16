@@ -28,7 +28,7 @@ class VsamFile : public node::ObjectWrap {
     }
   };
 
-  explicit VsamFile(const std::string& path);
+  explicit VsamFile(std::string&, std::vector<LayoutItem>&);
 
   /* Entry point from Javascript */
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);

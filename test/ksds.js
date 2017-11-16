@@ -30,8 +30,20 @@ function readUntilEnd(file, done) {
 }
 
 describe("Key Sequenced Dataset", function() {
-  it("open and close a vsam file", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+  it("create a file that doesn't exist", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            expect(file).not.be.null;
+            expect(err).to.be.null;
+            expect(file.close()).to.not.throw;
+            done();
+          }
+    );
+  });
+
+  it("open and close an existing vsam file", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file) => {
             expect(file).to.not.be.null;
@@ -42,75 +54,29 @@ describe("Key Sequenced Dataset", function() {
   });
 
  it("write new record", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => {
             record = {
-              key: "00117",
+              key: "00126",
               name: "JOHN",
               gender: "MALE"
             };
             file.write(record, (err) => {
               assert.ifError(err);
-              file.find("00117", (record, err) => {
-                assert.ifError(err);
-                assert.equal(record.key, "00117", "record has been created");
-                assert.equal(record.name, "JOHN", "created record has correct name");
-                assert.equal(record.gender, "MALE", "created record has correct gender");
-                expect(file.close()).to.not.throw;
-                done();
-              });
-            });
-          });
-  });
-
-  it("write new record after read", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
-          JSON.parse(fs.readFileSync('test/test.json')),
-          (file, err) => {
-            file.read((record, err) => {
-              record.key = "00115";
-              record.name = "FRED";
-              record.gender = "MALE";
-              file.write(record, (err) => {
-                assert.ifError(err);
-                file.find("00115", (record, err) => {
-                  assert.ifError(err);
-                  assert.equal(record.key, "00115", "record has been created");
-                  assert.equal(record.name, "FRED", "created record has correct name");
-                  assert.equal(record.gender, "MALE", "created record has correct gender");
-                  expect(file.close()).to.not.throw;
-                  done();
-                });
-              });
-            });
-          });
-  });
-
-  it("delete existing record", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
-          JSON.parse(fs.readFileSync('test/test.json')),
-          (file, err) => {
-            assert.ifError(err);
-            file.find("00117", (record, err) => {
-              file.delete( (err) => {
-                assert.ifError(err);
-                file.find("00117", (err) => {
-                  assert.ifError(err);
-                  expect(file.close()).to.not.throw;
-                  done();
-                });
-              });
+              expect(file.close()).to.not.throw;
+              done();
             });
           });
   });
 
   it("reads one record and verifies it's properties", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file) => {
             file.read( (record, err) => {
               assert.ifError(err);
+              expect(record).to.not.be.null;
               expect(record).to.have.property('key');
               expect(record).to.have.property('name');
               expect(record).to.have.property('gender');
@@ -120,8 +86,64 @@ describe("Key Sequenced Dataset", function() {
           });
   });
 
+  it("find existing record and verify data", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            file.find("00126", (record, err) => {
+              assert.ifError(err);
+              assert.equal(record.key, "00126", "record has been created");
+              assert.equal(record.name, "JOHN", "created record has correct name");
+              assert.equal(record.gender, "MALE", "created record has correct gender");
+              expect(file.close()).to.not.throw;
+              done();
+            });
+          });
+  });
+
+  it("write new record after read", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            file.read((record, err) => {
+              record.key = "00125";
+              record.name = "JANE";
+              record.gender = "FEMALE";
+              file.write(record, (err) => {
+                assert.ifError(err);
+                file.find("00125", (record, err) => {
+                  assert.ifError(err);
+                  assert.equal(record.key, "00125", "record has been created");
+                  assert.equal(record.name, "JANE", "created record has correct name");
+                  assert.equal(record.gender, "FEMALE", "created record has correct gender");
+                  expect(file.close()).to.not.throw;
+                  done();
+                });
+              });
+            });
+          });
+  });
+
+  it("delete existing record", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => {
+            assert.ifError(err);
+            file.find("00126", (record, err) => {
+              file.delete( (err) => {
+                assert.ifError(err);
+                file.find("00126", (err) => {
+                  assert.ifError(err);
+                  expect(file.close()).to.not.throw;
+                  done();
+                });
+              });
+            });
+          });
+  });
+
   it("reads all records until the end", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file) => {
             readUntilEnd(file, done);
@@ -130,7 +152,7 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("open a vsam file with incorrect key length", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test-error.json')),
           (file, err) => {
             expect(file).to.be.null;
@@ -142,7 +164,7 @@ describe("Key Sequenced Dataset", function() {
 
   it("throws exception for non-existent dataset", function(done) {
     var fcn = function() {
-                 vsam( "//'DOES.NOT.EXIST'", 
+                 vsam( "//'A'", 
                  JSON.parse(fs.readFileSync('test/test.json')),
                  (file) => { assert.true(false) }
     )};
@@ -150,33 +172,20 @@ describe("Key Sequenced Dataset", function() {
     done();
   });
 
-  it("find existing record", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
+  it("update existing record and delete it", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => {
-            file.find("00100", (record, err) => {
-              assert.ifError(err);
-              expect(record).to.have.property('key');
-              expect(record).to.have.property('name');
-              expect(record).to.have.property('gender');
-              expect(file.close()).to.not.throw;
-              done();
-            });
-          });
-  });
-
-  it("update existing record", function(done) {
-    vsam( "//'BARBOZA.TEST.VSAM.KSDS'", 
-          JSON.parse(fs.readFileSync('test/test.json')),
-          (file, err) => {
-            file.find("00115", (record, err) => {
+            file.find("00125", (record, err) => {
               assert.ifError(err);
               record.name = "KEVIN";
+              record.gender = "MALE";
               file.update(record, (err) => {
                 assert.ifError(err);
-                file.find("00115", (record, err) => {
+                file.find("00125", (record, err) => {
                   assert.ifError(err);
                   assert.equal(record.name, "KEVIN", "name has been updated");
+                  assert.equal(record.gender, "MALE", "gender has been updated");
                   file.delete( (err) => {
                     assert.ifError(err);
                     expect(file.close()).to.not.throw;

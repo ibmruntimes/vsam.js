@@ -1,6 +1,9 @@
 #include "VsamFile.h"
 #include <node_buffer.h>
 #include <unistd.h>
+#include <dynit.h>
+#include <sstream>
+#include <numeric>
 
 using v8::Context;
 using v8::Function;
@@ -244,14 +247,40 @@ void VsamFile::OpenCallback(uv_work_t* req, int status) {
 }
 
 
-VsamFile::VsamFile(const std::string& path) :
+VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout) :
     path_(path),
-#pragma convert("IBM-1047")
-    stream_(fopen(path.c_str(), "ab+,type=record")),
-#pragma convert(pop)
+    stream_(NULL),
     keylen_(-1),
     lastrc_(0),
+    layout_(layout),
     buf_(NULL) {
+
+#pragma convert("IBM-1047")
+  std::ostringstream dataset;
+  dataset << "//'" << path.c_str() << "'";
+
+  stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
+
+  if (stream_ == NULL) {
+    __dyn_t dyn;
+    dyninit(&dyn);
+    dyn.__dsname = &path[0];
+    dyn.__normdisp = __DISP_CATLG;
+    dyn.__lrecl = std::accumulate(layout_.begin(), layout_.end(), 0,
+                                  [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
+    dyn.__keylength = layout[0].maxLength;
+    dyn.__recorg = __KS;
+
+    if (dynalloc(&dyn) != 0)
+      return;
+
+    stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
+  }
+  else {
+    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
+  }
+
+#pragma convert(pop)
 
   if (stream_ == NULL)
     return;
@@ -311,15 +340,10 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
       __a2e_l(&c, 1);
       return c;
     });
-    std::unique_ptr<VsamFile> obj(new VsamFile(path));
-    if (obj->stream_ == NULL) {
-        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Error opening VSAM file")));
-        return;
-    }
-
 
     Local<Object> schema = args[1]->ToObject();
     Local<Array> properties = schema->GetPropertyNames();
+    std::vector<LayoutItem> layout;
     for (int i = 0; i < properties->Length(); ++i) {
       String::Utf8Value name(properties->Get(i)->ToString());
 
@@ -335,9 +359,14 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
         return;
       }
       
-      obj->layout_.push_back(LayoutItem(name, length->ToInteger()->Value(), LayoutItem::STRING));
+      layout.push_back(LayoutItem(name, length->ToInteger()->Value(), LayoutItem::STRING));
     }
 
+    std::unique_ptr<VsamFile> obj(new VsamFile(path, layout));
+    if (obj->stream_ == NULL) {
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Error opening VSAM file")));
+        return;
+    }
 
     Handle<Function> callback = Handle<Function>::Cast(args[2]);
     obj->cb_ = Persistent<Function>(isolate, callback);

@@ -207,6 +207,41 @@ void VsamFile::Update(uv_work_t* req) {
 }
 
 
+void VsamFile::Dealloc(uv_work_t* req) {
+  VsamFile* obj = (VsamFile*)(req->data);
+
+#pragma convert("IBM-1047")
+  std::ostringstream dataset;
+  dataset << "//'" << obj->path_.c_str() << "'";
+#pragma convert(pop)
+
+  obj->lastrc_ = remove(dataset.str().c_str());
+}
+
+
+void VsamFile::Alloc(uv_work_t* req) {
+  VsamFile* obj = (VsamFile*)(req->data);
+
+#pragma convert("IBM-1047")
+  std::ostringstream ddname;
+  ddname << "NAMEDD";
+#pragma convert(pop)
+
+  __dyn_t dyn;
+  dyninit(&dyn);
+  dyn.__dsname = &(obj->path_[0]);
+  dyn.__ddname = &(ddname.str()[0]);
+  dyn.__normdisp = __DISP_CATLG;
+  dyn.__lrecl = std::accumulate(obj->layout_.begin(), obj->layout_.end(), 0,
+                                [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
+  dyn.__keylength = obj->layout_[0].maxLength;
+  dyn.__recorg = __KS;
+
+  if (dynalloc(&dyn) != 0) //TODO: error
+    return;
+}
+
+
 void VsamFile::Open(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
 
@@ -217,6 +252,69 @@ void VsamFile::Open(uv_work_t* req) {
   fldata(obj->stream_, NULL, &info);
   obj->keylen_ = info.__vsamkeylen;
   obj->reclen_ = info.__maxreclen;
+}
+
+
+void VsamFile::DeallocCallback(uv_work_t* req, int status) {
+  VsamFile* obj = (VsamFile*)(req->data);
+  delete req;
+
+  HandleScope scope(obj->isolate_);
+  if (status == UV_ECANCELED) {
+    return;
+  }
+  else if (obj->lastrc_ != 0) {
+    const unsigned argc = 1;
+    Local<Value> argv[argc] = {
+      Exception::TypeError(String::NewFromUtf8(obj->isolate_,
+                           "Couldn't deallocate dataset"))
+    };
+
+    auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
+    fn->Call(Null(obj->isolate_), argc, argv);
+  }
+  else {
+    const unsigned argc = 1;
+    Local<Value> argv[argc] = {
+      Null(obj->isolate_)
+    };
+
+    auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
+    fn->Call(Null(obj->isolate_), argc, argv);
+  }
+}
+
+
+void VsamFile::AllocCallback(uv_work_t* req, int status) {
+  VsamFile* obj = (VsamFile*)(req->data);
+
+#pragma convert("IBM-1047")
+  std::ostringstream dataset;
+  dataset << "//'" << obj->path_.c_str() << "'";
+  obj->stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
+#pragma convert(pop)
+
+  HandleScope scope(obj->isolate_);
+  if (status == UV_ECANCELED) {
+    delete req;
+    return;
+  }
+  else if (obj->stream_ == NULL) {
+    const unsigned argc = 2;
+    Local<Value> argv[argc] = {
+      Null(obj->isolate_),
+      Exception::TypeError(String::NewFromUtf8(obj->isolate_,
+                           "Incorrect key length"))
+    };
+
+    delete req;
+    auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
+    fn->Call(Null(obj->isolate_), argc, argv);
+  }
+  else {
+    req->data = obj;
+    uv_queue_work(uv_default_loop(), req, Open, OpenCallback);
+  }
 }
 
 
@@ -247,47 +345,34 @@ void VsamFile::OpenCallback(uv_work_t* req, int status) {
 }
 
 
-VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout) :
+VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
+                   Isolate* isolate) :
     path_(path),
     stream_(NULL),
     keylen_(-1),
     lastrc_(0),
     layout_(layout),
+    isolate_(isolate),
     buf_(NULL) {
 
 #pragma convert("IBM-1047")
   std::ostringstream dataset;
   dataset << "//'" << path.c_str() << "'";
-
   stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
 
-  if (stream_ == NULL) {
-    __dyn_t dyn;
-    dyninit(&dyn);
-    dyn.__dsname = &path[0];
-    dyn.__normdisp = __DISP_CATLG;
-    dyn.__lrecl = std::accumulate(layout_.begin(), layout_.end(), 0,
-                                  [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
-    dyn.__keylength = layout[0].maxLength;
-    dyn.__recorg = __KS;
-
-    if (dynalloc(&dyn) != 0)
-      return;
-
-    stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
+  if (stream_ == NULL && __errno2() == 0xC00B0641) {
+    uv_work_t* request = new uv_work_t;
+    request->data = this;
+    uv_queue_work(uv_default_loop(), request, Alloc, AllocCallback);
   }
   else {
     stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
+    uv_work_t* request = new uv_work_t;
+    request->data = this;
+    uv_queue_work(uv_default_loop(), request, Open, OpenCallback);
   }
-
 #pragma convert(pop)
 
-  if (stream_ == NULL)
-    return;
-
-  uv_work_t* request = new uv_work_t;
-  request->data = this;
-  uv_queue_work(uv_default_loop(), request, Open, OpenCallback);
 }
 
 
@@ -304,13 +389,13 @@ void VsamFile::Init(Isolate* isolate) {
   tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
   // Prototype
-  NODE_SET_PROTOTYPE_METHOD(tpl, "fd", FileDescriptor);
   NODE_SET_PROTOTYPE_METHOD(tpl, "read", Read);
   NODE_SET_PROTOTYPE_METHOD(tpl, "find", Find);
   NODE_SET_PROTOTYPE_METHOD(tpl, "update", Update);
   NODE_SET_PROTOTYPE_METHOD(tpl, "write", Write);
   NODE_SET_PROTOTYPE_METHOD(tpl, "delete", Delete);
   NODE_SET_PROTOTYPE_METHOD(tpl, "close", Close);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "dealloc", Dealloc);
 
   constructor.Reset(isolate, tpl->GetFunction());
 }
@@ -362,16 +447,10 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
       layout.push_back(LayoutItem(name, length->ToInteger()->Value(), LayoutItem::STRING));
     }
 
-    std::unique_ptr<VsamFile> obj(new VsamFile(path, layout));
-    if (obj->stream_ == NULL) {
-        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Error opening VSAM file")));
-        return;
-    }
-
+    VsamFile *obj = new VsamFile(path, layout, isolate);
     Handle<Function> callback = Handle<Function>::Cast(args[2]);
     obj->cb_ = Persistent<Function>(isolate, callback);
-    obj->isolate_ = isolate;
-    obj.release()->Wrap(args.This());
+    obj->Wrap(args.This());
     args.GetReturnValue().Set(args.This());
   } else {
     // Invoked as plain function `MyObject(...)`, turn into construct call.
@@ -415,6 +494,7 @@ void VsamFile::Close(const FunctionCallbackInfo<Value>& args) {
         String::NewFromUtf8(isolate, "Error closing file")));
     return;
   }
+  obj->stream_ = NULL;
 }
 
 
@@ -592,23 +672,35 @@ void VsamFile::Read(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-void VsamFile::FileDescriptor(const FunctionCallbackInfo<Value>& args) {
+void VsamFile::Dealloc(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
 
+  if (args.Length() < 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+
+  if (!args[0]->IsFunction()) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
   VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
-
-  if (obj->stream_ == NULL) {
+  if (obj->stream_ != NULL) {
     isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "VSAM file is invalid")));
+        String::NewFromUtf8(isolate, "Cannot dealloc an open VSAM file")));
     return;
   }
+  uv_work_t* request = new uv_work_t;
+  request->data = obj;
 
-  int fd = fileno(obj->stream_);
-  if (fd == -1) {
-    isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Cannot retrieve fd")));
-    return;
-  }
+  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[0]));
+  obj->isolate_ = isolate;
 
-  args.GetReturnValue().Set(Number::New(isolate, fd));
+  uv_queue_work(uv_default_loop(), request, Dealloc, DeallocCallback);
 }
+
+

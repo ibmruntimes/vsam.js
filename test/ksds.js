@@ -163,13 +163,12 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("throws exception for non-existent dataset", function(done) {
-    var fcn = function() {
-                 vsam( "//'A'", 
-                 JSON.parse(fs.readFileSync('test/test.json')),
-                 (file) => { assert.true(false) }
-    )};
-    expect(fcn).to.throw(TypeError);
-    done();
+    vsam( "A..B", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => { 
+            expect(err).to.not.be.null;
+            done();
+          });
   });
 
   it("update existing record and delete it", function(done) {
@@ -197,4 +196,16 @@ describe("Key Sequenced Dataset", function() {
           });
   });
 
+  it("deallocates a dataset", function(done) {
+    vsam( "BARBOZA.TEST.VSAM.KSDS2", 
+          JSON.parse(fs.readFileSync('test/test.json')),
+          (file, err) => { 
+            expect(file).to.not.be.null;
+            expect(file.close()).to.not.throw;
+            file.dealloc((err) => {
+              assert.ifError(err);
+              done();
+            })
+          });
+  });
 });

@@ -28,20 +28,23 @@ class VsamFile : public node::ObjectWrap {
     }
   };
 
-  explicit VsamFile(std::string&, std::vector<LayoutItem>&);
+  explicit VsamFile(std::string&, std::vector<LayoutItem>&,
+                    v8::Isolate* isolate);
 
   /* Entry point from Javascript */
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void FileDescriptor(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Read(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Find(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Update(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Write(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Delete(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void Dealloc(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   /* Work functions */
   static void Open(uv_work_t* req);
+  static void Alloc(uv_work_t* req);
+  static void Dealloc(uv_work_t* req);
   static void Read(uv_work_t* req);
   static void Find(uv_work_t* req);
   static void Update(uv_work_t* req);
@@ -51,6 +54,8 @@ class VsamFile : public node::ObjectWrap {
   /* Work callback functions */
   v8::Persistent<v8::Function, v8::CopyablePersistentTraits<v8::Function>> cb_;
   static void OpenCallback(uv_work_t* req, int statusj);
+  static void AllocCallback(uv_work_t* req, int statusj);
+  static void DeallocCallback(uv_work_t* req, int statusj);
   static void ReadCallback(uv_work_t* req, int status);
   static void UpdateCallback(uv_work_t* req, int status);
   static void WriteCallback(uv_work_t* req, int status);

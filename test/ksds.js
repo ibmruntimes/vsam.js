@@ -30,7 +30,7 @@ function readUntilEnd(file, done) {
 }
 
 describe("Key Sequenced Dataset", function() {
-  it("create a file that doesn't exist", function(done) {
+  it("create an empty dataset", function(done) {
     vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => {
@@ -42,7 +42,7 @@ describe("Key Sequenced Dataset", function() {
     );
   });
 
-  it("open and close an existing vsam file", function(done) {
+  it("open and close the existing dataset", function(done) {
     vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file) => {
@@ -70,7 +70,7 @@ describe("Key Sequenced Dataset", function() {
           });
   });
 
-  it("reads one record and verifies it's properties", function(done) {
+  it("read a record and verify properties", function(done) {
     vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file) => {
@@ -162,7 +162,7 @@ describe("Key Sequenced Dataset", function() {
           });
   });
 
-  it("throws exception for non-existent dataset", function(done) {
+  it("return error for non-existent dataset", function(done) {
     vsam( "A..B", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => { 
@@ -196,7 +196,7 @@ describe("Key Sequenced Dataset", function() {
           });
   });
 
-  it("deallocates a dataset", function(done) {
+  it("deallocate a dataset", function(done) {
     vsam( "BARBOZA.TEST.VSAM.KSDS2", 
           JSON.parse(fs.readFileSync('test/test.json')),
           (file, err) => { 

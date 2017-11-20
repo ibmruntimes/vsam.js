@@ -560,11 +560,9 @@ void VsamFile::Write(const FunctionCallbackInfo<Value>& args) {
 
   uv_work_t* request = new uv_work_t;
   request->data = obj;
-
-  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[1]));
   obj->isolate_ = isolate;
-
   uv_queue_work(uv_default_loop(), request, Write, WriteCallback);
+  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[1]));
 }
 
 

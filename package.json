@@ -1,5 +1,5 @@
 {
-  "name": "vsam",
+  "name": "vsam.js",
   "version": "1.0.0",
   "description": "Interact with VSAM files on z/OS",
   "main": "index.js",

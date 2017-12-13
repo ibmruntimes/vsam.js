@@ -1,6 +1,6 @@
 {
   "name": "vsam.js",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Interact with VSAM files on z/OS",
   "main": "index.js",
   "keywords": [

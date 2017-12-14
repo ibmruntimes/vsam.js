@@ -4,7 +4,7 @@
  * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
 */
 
-const vsam = require("../build/Release/vsam.node");
+const vsam = require("../build/Release/vsam.js.node");
 const async = require('async');
 const fs = require('fs');
 const expect = require('chai').expect;

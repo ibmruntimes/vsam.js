@@ -59,6 +59,7 @@ schema.json looks like this:
 - [Reading a record from a vsam file](#reading-a-record-from-a-vsam-file)
 - [Writing a record to a vsam file](#writing-a-record-to-a-vsam-file)
 - [Finding a record in a vsam file](#finding-a-record-in-a-vsam-file)
+- [Updating a record in a vsam file](#updating-a-record-in-a-vsam-file)
 - [Deleting a record from a vsam file](#deleting-a-record-from-a-vsam-file)
 - [Deallocating a vsam file](#deallocating-a-vsam-file)
 
@@ -131,7 +132,21 @@ vsamObj.find((recordKey, (record, err) => {
 * Usage notes:
   * The find operation will place the cursor at the queried record (if found).
   * The record object in the callback will by null if the query failed to retrieve a record.
+  
+## Updating a record in a vsam file
 
+```js
+vsamObj.update((recordKey, (err) => { 
+   ...
+}));
+```
+
+* The first argument is record key (usually a string).
+* The second argument is a callback
+  * The first argument is an error object in case the operation failed.
+* Usage notes:
+  * The update operation will write over the record currently under the cursor.
+  
 ## Deleting a record from a vsam file
 
 ```js

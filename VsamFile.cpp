@@ -225,42 +225,6 @@ void VsamFile::Dealloc(uv_work_t* req) {
 }
 
 
-void VsamFile::Alloc(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-
-#pragma convert("IBM-1047")
-  std::ostringstream ddname;
-  ddname << "NAMEDD";
-#pragma convert(pop)
-
-  __dyn_t dyn;
-  dyninit(&dyn);
-  dyn.__dsname = &(obj->path_[0]);
-  dyn.__ddname = &(ddname.str()[0]);
-  dyn.__normdisp = __DISP_CATLG;
-  dyn.__lrecl = std::accumulate(obj->layout_.begin(), obj->layout_.end(), 0,
-                                [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
-  dyn.__keylength = obj->layout_[0].maxLength;
-  dyn.__recorg = __KS;
-
-  if (dynalloc(&dyn) != 0) //TODO: error
-    return;
-}
-
-
-void VsamFile::Open(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-
-  if (obj->stream_ == NULL)
-    return;
-
-  fldata_t info;
-  fldata(obj->stream_, NULL, &info);
-  obj->keylen_ = info.__vsamkeylen;
-  obj->reclen_ = info.__maxreclen;
-}
-
-
 void VsamFile::DeallocCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
   delete req;
@@ -291,66 +255,6 @@ void VsamFile::DeallocCallback(uv_work_t* req, int status) {
 }
 
 
-void VsamFile::AllocCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-
-#pragma convert("IBM-1047")
-  std::ostringstream dataset;
-  dataset << "//'" << obj->path_.c_str() << "'";
-  obj->stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
-#pragma convert(pop)
-
-  HandleScope scope(obj->isolate_);
-  if (status == UV_ECANCELED) {
-    delete req;
-    return;
-  }
-  else if (obj->stream_ == NULL) {
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = {
-      Null(obj->isolate_),
-      Exception::TypeError(String::NewFromUtf8(obj->isolate_,
-                           "Incorrect key length"))
-    };
-
-    delete req;
-    auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
-    fn->Call(Null(obj->isolate_), argc, argv);
-  }
-  else {
-    req->data = obj;
-    uv_queue_work(uv_default_loop(), req, Open, OpenCallback);
-  }
-}
-
-
-void VsamFile::OpenCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-
-  if (status == UV_ECANCELED)
-    return;
-
-  const unsigned argc = 2;
-  HandleScope scope(obj->isolate_);
-  Local<Value> argv[argc];
-  if (obj->keylen_ != obj->layout_[0].maxLength) {
-    fclose(obj->stream_);
-    obj->stream_ = NULL;
-    argv[0] = Null(obj->isolate_);
-    argv[1] = Exception::TypeError(
-                String::NewFromUtf8(obj->isolate_, "Incorrect key length"));
-  }
-  else {
-    argv[0] = obj->handle();
-    argv[1] = Null(obj->isolate_);
-  }
-  
-  auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
-  fn->Call(Null(obj->isolate_), argc, argv);
-}
-
-
 VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
                    Isolate* isolate) :
     path_(path),
@@ -365,19 +269,58 @@ VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
   std::ostringstream dataset;
   dataset << "//'" << path.c_str() << "'";
   stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
+#pragma convert(pop)
 
   if (stream_ == NULL && __errno2() == 0xC00B0641) {
-    uv_work_t* request = new uv_work_t;
-    request->data = this;
-    uv_queue_work(uv_default_loop(), request, Alloc, AllocCallback);
-  }
-  else {
-    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
-    uv_work_t* request = new uv_work_t;
-    request->data = this;
-    uv_queue_work(uv_default_loop(), request, Open, OpenCallback);
-  }
+    std::ostringstream ddname;
+#pragma convert("IBM-1047")
+    ddname << "NAMEDD";
 #pragma convert(pop)
+
+    __dyn_t dyn;
+    dyninit(&dyn);
+    dyn.__dsname = &(path_[0]);
+    dyn.__ddname = &(ddname.str()[0]);
+    dyn.__normdisp = __DISP_CATLG;
+    dyn.__lrecl = std::accumulate(layout_.begin(), layout_.end(), 0,
+                                  [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
+    dyn.__keylength = layout_[0].maxLength;
+    dyn.__recorg = __KS;
+    if (dynalloc(&dyn) != 0) {
+      isolate->ThrowException(Exception::TypeError(
+          String::NewFromUtf8(isolate, "Failed to allocate dataset")));
+      return;
+    }
+
+#pragma convert("IBM-1047")
+    stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
+#pragma convert(pop)
+    if (stream_ == NULL) {
+      isolate->ThrowException(Exception::TypeError(
+          String::NewFromUtf8(isolate, "Failed to open new dataset")));
+      return;
+    }
+  } else {
+#pragma convert("IBM-1047")
+    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
+#pragma convert(pop)
+    if (stream_ == NULL) {
+      isolate->ThrowException(Exception::TypeError(
+          String::NewFromUtf8(isolate, "Failed to open existing dataset")));
+      return;
+    }
+  }
+
+  fldata_t info;
+  fldata(stream_, NULL, &info);
+  keylen_ = info.__vsamkeylen;
+  reclen_ = info.__maxreclen;
+  if (keylen_ != layout_[0].maxLength) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Incorrect key length")));
+    fclose(stream_);
+    return;
+  }
 
 }
 
@@ -413,14 +356,14 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
     // Invoked as constructor: `new MyObject(...)`
 
     // Check the number of arguments passed.
-    if (args.Length() < 3) {
+    if (args.Length() < 2) {
       // Throw an Error that is passed back to JavaScript
       isolate->ThrowException(Exception::TypeError(
           String::NewFromUtf8(isolate, "Wrong number of arguments")));
       return;
     }
 
-    if (!args[0]->IsString() || !args[2]->IsFunction()) {
+    if (!args[0]->IsString()) {
       isolate->ThrowException(Exception::TypeError(
           String::NewFromUtf8(isolate, "Wrong arguments")));
       return;
@@ -454,8 +397,6 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
     }
 
     VsamFile *obj = new VsamFile(path, layout, isolate);
-    Handle<Function> callback = Handle<Function>::Cast(args[2]);
-    obj->cb_ = Persistent<Function>(isolate, callback);
     obj->Wrap(args.This());
     args.GetReturnValue().Set(args.This());
   } else {

@@ -86,8 +86,7 @@ var vsamObj = vsam.open( "//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('sc
 vsamObj.close((err) => { /* Handle error. */ });
 ```
 
-* The first argument is the file descriptor.
-* The second argument is a callback function containing an error object if the close operation failed.
+* The first argument is a callback function containing an error object if the close operation failed.
 
 ## Reading a record from a vsam dataset
 

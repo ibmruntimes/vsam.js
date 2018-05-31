@@ -55,6 +55,8 @@ schema.json looks like this:
 ## Table of contents
 
 - [Opening a vsam dataset for I/O](#opening-a-vsam-dataset-for-io)
+- [Allocating a vsam dataset for I/O](#allocating-a-vsam-dataset-for-io)
+- [Check if vsam dataset exists](#check-if-vsam-dataset-exists)
 - [Closing a vsam dataset](#closing-a-vsam-dataset)
 - [Reading a record from a vsam dataset](#reading-a-record-from-a-vsam-dataset)
 - [Writing a record to a vsam dataset](#writing-a-record-to-a-vsam-dataset)
@@ -65,20 +67,45 @@ schema.json looks like this:
 
 ---
 
+## ALlocating a vsam dataset for I/O
+
+```js
+const vsam = require('vsam');
+const fs = require('fs');
+var vsamObj = vsam.openSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
+```
+
+* The first argument is the VSAM dataset name to allocate.
+* The second argument is the JSON object derived from the schema file.
+* The value returned is a vsam dataset handle. The rest of this readme describes the operations that can be performed on this object.
+* Usage notes:
+  * If the dataset already exists, this function will throw an exception.
+  * On any error, this function with throw an exception.
+
 ## Opening a vsam dataset for I/O
 
 ```js
 const vsam = require('vsam');
 const fs = require('fs');
-var vsamObj = vsam.open( "//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
+var vsamObj = vsam.openSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
 ```
 
-* The first argument is the VSAM dataset name.
+* The first argument is the name of an existing VSAM dataset.
 * The second argument is the JSON object derived from the schema file.
 * The value returned is a vsam dataset handle. The rest of this readme describes the operations that can be performed on this object.
 * Usage notes:
-  * On opening a vsam dataset, the cursor is placed at the first record.
   * On error, this function with throw an exception.
+
+## Check if vsam dataset exists
+
+```js
+const vsam = require('vsam');
+const fs = require('fs');
+vsam.exist("//'VSAM.DATASET.NAME'");
+```
+
+* The first argument is the name of an existing VSAM dataset.
+* Boolean value is returned indicating whether dataset exists or not.
 
 ## Closing a vsam dataset
 
@@ -97,7 +124,7 @@ vsamObj.read((record, err) => {
 ```
 
 * The first argument is a callback function whose arguments are as follows:
-  * The first argument is an object that contains the information from the next read record.
+  * The first argument is an object that contains the information from the read record.
   * The second argument will contain an error object in case the read operation failed.
 * Usage notes:
   * The read operation retrievs the record under the current cursor and advances the cursor by one record length.
@@ -107,7 +134,7 @@ vsamObj.read((record, err) => {
 ```js
 vsamObj.write((record, (err) => { 
   /* Make sure err is null. */
-}));
+});
 ```
 
 * The first argument is record object that will be written.
@@ -121,7 +148,7 @@ vsamObj.write((record, (err) => {
 ```js
 vsamObj.find((recordKey, (record, err) => { 
   /* Use record information. */
-}));
+});
 ```
 
 * The first argument is record key (usually a string).
@@ -137,7 +164,7 @@ vsamObj.find((recordKey, (record, err) => {
 ```js
 vsamObj.update((recordKey, (err) => { 
    ...
-}));
+});
 ```
 
 * The first argument is record key (usually a string).

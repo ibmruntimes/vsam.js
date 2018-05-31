@@ -36,25 +36,35 @@ function readUntilEnd(file, done) {
 }
 
 describe("Key Sequenced Dataset", function() {
+  it("ensure test dataset does not exist", function(done) {
+    expect(vsam.exist("BARBOZA.TEST.VSAM.KSDS2")).to.be.false;
+    done();
+  });
+
   it("create an empty dataset", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.allocSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     expect(file).not.be.null;
     expect(file.close()).to.not.throw;
     done();
   });
 
+  it("ensure test dataset exists", function(done) {
+    expect(vsam.exist("BARBOZA.TEST.VSAM.KSDS2")).to.be.true;
+    done();
+  });
+
   it("open and close the existing dataset", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     expect(file).to.not.be.null;
     expect(file.close()).to.not.throw;
     done();
   });
 
  it("write new record", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     record = {
       key: "00126",
       name: "JOHN",
@@ -68,8 +78,8 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("read a record and verify properties", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     file.read( (record, err) => {
       assert.ifError(err);
       expect(record).to.not.be.null;
@@ -82,8 +92,8 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("find existing record and verify data", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     file.find("00126", (record, err) => {
       assert.ifError(err);
       assert.equal(record.key, "00126", "record has been created");
@@ -95,8 +105,8 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("write new record after read", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     file.read((record, err) => {
       record.key = "00125";
       record.name = "JANE";
@@ -116,8 +126,8 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("delete existing record", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     file.find("00126", (record, err) => {
       file.delete( (err) => {
         assert.ifError(err);
@@ -131,30 +141,30 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("reads all records until the end", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     readUntilEnd(file, done);
   });
 
   it("open a vsam file with incorrect key length", function(done) {
     expect(() => {
-      vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                JSON.parse(fs.readFileSync('test/test-error.json')))
+      vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                    JSON.parse(fs.readFileSync('test/test-error.json')))
     }).to.throw(/Incorrect key length/);
     done();
   });
 
   it("return error for non-existent dataset", function(done) {
     expect(() => {
-      vsam.open("A..B",
-                JSON.parse(fs.readFileSync('test/test.json')))
-    }).to.throw;
+      vsam.openSync("A..B",
+                    JSON.parse(fs.readFileSync('test/test.json')))
+    }).to.throw(/Invalid dataset name/);
     done();
   });
 
   it("update existing record and delete it", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     file.find("00125", (record, err) => {
       assert.ifError(err);
       record.name = "KEVIN";
@@ -176,8 +186,8 @@ describe("Key Sequenced Dataset", function() {
   });
 
   it("deallocate a dataset", function(done) {
-    var file = vsam.open("BARBOZA.TEST.VSAM.KSDS2",
-                         JSON.parse(fs.readFileSync('test/test.json')))
+    var file = vsam.openSync("BARBOZA.TEST.VSAM.KSDS2",
+                             JSON.parse(fs.readFileSync('test/test.json')))
     expect(file.close()).to.not.throw;
     file.dealloc((err) => {
       assert.ifError(err);

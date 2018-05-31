@@ -17,7 +17,9 @@ using v8::Value;
 void InitAll(Local<Object> exports, Local<Object> module) {
   VsamFile::Init(exports->GetIsolate());
 
-  NODE_SET_METHOD(exports, "open", VsamFile::NewInstance);
+  NODE_SET_METHOD(exports, "openSync", VsamFile::OpenSync);
+  NODE_SET_METHOD(exports, "allocSync", VsamFile::AllocSync);
+  NODE_SET_METHOD(exports, "exist", VsamFile::Exist);
 }
 
 NODE_MODULE(vsam, InitAll)

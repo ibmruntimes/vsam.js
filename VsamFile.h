@@ -15,8 +15,11 @@
 class VsamFile : public node::ObjectWrap {
  public:
   static void Init(v8::Isolate* isolate);
-  static void NewInstance(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static v8::Persistent<v8::Function> constructor;
+  static void OpenSync(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void AllocSync(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void Exist(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static v8::Persistent<v8::Function> OpenSyncConstructor;
+  static v8::Persistent<v8::Function> AllocSyncConstructor;
   ~VsamFile();
 
  private:
@@ -35,10 +38,9 @@ class VsamFile : public node::ObjectWrap {
   };
 
   explicit VsamFile(std::string&, std::vector<LayoutItem>&,
-                    v8::Isolate* isolate);
+                    v8::Isolate* isolate, bool alloc);
 
   /* Entry point from Javascript */
-  static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Read(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Find(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -67,6 +69,10 @@ class VsamFile : public node::ObjectWrap {
   static void WriteCallback(uv_work_t* req, int status);
   static void DeleteCallback(uv_work_t* req, int status);
 
+  /* Private methods */
+  static void SetPrototypeMethods(v8::Local<v8::FunctionTemplate>& tpl);
+  static void Construct(const v8::FunctionCallbackInfo<v8::Value>& args, bool alloc);
+
   /* Data */
   v8::Isolate* isolate_;
   std::string path_;
@@ -76,6 +82,7 @@ class VsamFile : public node::ObjectWrap {
   FILE *stream_;
   void *buf_;
   int lastrc_;
+  std::string errmsg_;
 };
 
 #endif

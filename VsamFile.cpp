@@ -27,9 +27,11 @@ using v8::HandleScope;
 using v8::Handle;
 using v8::Array;
 using v8::Integer;
+using v8::Boolean;
 using v8::MaybeLocal;
 
-Persistent<Function> VsamFile::constructor;
+Persistent<Function> VsamFile::OpenSyncConstructor;
+Persistent<Function> VsamFile::AllocSyncConstructor;
 
 static void print_amrc() {
   __amrc_type currErr = *__amrc; /* copy contents of __amrc */
@@ -256,7 +258,7 @@ void VsamFile::DeallocCallback(uv_work_t* req, int status) {
 
 
 VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
-                   Isolate* isolate) :
+                   Isolate* isolate, bool alloc) :
     path_(path),
     stream_(NULL),
     keylen_(-1),
@@ -266,12 +268,44 @@ VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
     buf_(NULL) {
 
 #pragma convert("IBM-1047")
-  std::ostringstream dataset;
-  dataset << "//'" << path.c_str() << "'";
-  stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
+    std::ostringstream dataset;
+    dataset << "//'" << path.c_str() << "'";
+    stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
+    int err = __errno2();
 #pragma convert(pop)
 
-  if (stream_ == NULL && __errno2() == 0xC00B0641) {
+  if (!alloc) {
+
+    if (stream_ == NULL) {
+      errmsg_ = err == 0xC00B0641 ? "Dataset does not exist" : "Invalid dataset name";
+      lastrc_ = -1;
+      return;
+    }
+
+#pragma convert("IBM-1047")
+    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
+#pragma convert(pop)
+    if (stream_ == NULL) {
+      errmsg_ = "Failed to open dataset";
+      lastrc_ = -1;
+      return;
+    }
+
+  } else {
+    
+    if (stream_ != NULL) {
+      errmsg_ = "Dataset already exists";
+      fclose(stream_);
+      lastrc_ = -1;
+      return;
+    }
+
+    if (err != 0xC00B0641) {
+      errmsg_ = "Invalid dataset format";
+      lastrc_ = -1;
+      return;
+    }
+
     std::ostringstream ddname;
 #pragma convert("IBM-1047")
     ddname << "NAMEDD";
@@ -287,8 +321,8 @@ VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
     dyn.__keylength = layout_[0].maxLength;
     dyn.__recorg = __KS;
     if (dynalloc(&dyn) != 0) {
-      isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Failed to allocate dataset")));
+      errmsg_ = "Failed to allocate dataset";
+      lastrc_ = -1;
       return;
     }
 
@@ -296,17 +330,8 @@ VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
 #pragma convert(pop)
     if (stream_ == NULL) {
-      isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Failed to open new dataset")));
-      return;
-    }
-  } else {
-#pragma convert("IBM-1047")
-    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
-#pragma convert(pop)
-    if (stream_ == NULL) {
-      isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Failed to open existing dataset")));
+      errmsg_ = "Failed to open new dataset";
+      lastrc_ = -1;
       return;
     }
   }
@@ -316,9 +341,9 @@ VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
   keylen_ = info.__vsamkeylen;
   reclen_ = info.__maxreclen;
   if (keylen_ != layout_[0].maxLength) {
-    isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Incorrect key length")));
+    errmsg_ = "Incorrect key length";
     fclose(stream_);
+    lastrc_ = -1;
     return;
   }
 
@@ -331,12 +356,7 @@ VsamFile::~VsamFile() {
 }
 
 
-void VsamFile::Init(Isolate* isolate) {
-  // Prepare constructor template
-  Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, VsamFile::New);
-  tpl->SetClassName(String::NewFromUtf8(isolate, "VsamFile"));
-  tpl->InstanceTemplate()->SetInternalFieldCount(1);
-
+void VsamFile::SetPrototypeMethods(Local<FunctionTemplate>& tpl) {
   // Prototype
   NODE_SET_PROTOTYPE_METHOD(tpl, "read", Read);
   NODE_SET_PROTOTYPE_METHOD(tpl, "find", Find);
@@ -345,65 +365,90 @@ void VsamFile::Init(Isolate* isolate) {
   NODE_SET_PROTOTYPE_METHOD(tpl, "delete", Delete);
   NODE_SET_PROTOTYPE_METHOD(tpl, "close", Close);
   NODE_SET_PROTOTYPE_METHOD(tpl, "dealloc", Dealloc);
-
-  constructor.Reset(isolate, tpl->GetFunction());
 }
 
-void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
+
+void VsamFile::Init(Isolate* isolate) {
+  // Prepare constructor template
+  Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, VsamFile::OpenSync);
+  tpl->SetClassName(String::NewFromUtf8(isolate, "VsamFile"));
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
+  SetPrototypeMethods(tpl);
+  OpenSyncConstructor.Reset(isolate, tpl->GetFunction());
+
+  tpl = FunctionTemplate::New(isolate, VsamFile::AllocSync);
+  tpl->SetClassName(String::NewFromUtf8(isolate, "VsamFile"));
+  tpl->InstanceTemplate()->SetInternalFieldCount(1);
+  SetPrototypeMethods(tpl);
+  AllocSyncConstructor.Reset(isolate, tpl->GetFunction());
+}
+
+
+void VsamFile::Construct(const FunctionCallbackInfo<Value>& args, bool alloc) {
   Isolate* isolate = args.GetIsolate();
 
+  // Check the number of arguments passed.
+  if (args.Length() != 2) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+
+  if (!args[0]->IsString()) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  std::string path (*v8::String::Utf8Value(args[0]->ToString()));
+  transform(path.begin(), path.end(), path.begin(), [](char c) -> char {
+    __a2e_l(&c, 1);
+    return c;
+  });
+
+  Local<Object> schema = args[1]->ToObject();
+  Local<Array> properties = schema->GetPropertyNames();
+  std::vector<LayoutItem> layout;
+  for (int i = 0; i < properties->Length(); ++i) {
+    String::Utf8Value name(properties->Get(i)->ToString());
+
+    Local<Object> item = Local<Object>::Cast(schema->Get(properties->Get(i)));
+    if (item.IsEmpty()) {
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Json is incorrect")));
+      return;
+    }
+
+    Local<Value> length = Local<Value>::Cast(item->Get( Local<String>(String::NewFromUtf8(isolate, "maxLength"))));
+    if (length.IsEmpty() || !length->IsNumber()) {
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Json is incorrect")));
+      return;
+    }
+    
+    layout.push_back(LayoutItem(name, length->ToInteger()->Value(), LayoutItem::STRING));
+  }
+
+  VsamFile *obj = new VsamFile(path, layout, isolate, alloc);
+  if (obj->lastrc_) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, obj->errmsg_.c_str())));
+    delete obj;
+    return;
+  }
+  obj->Wrap(args.This());
+  args.GetReturnValue().Set(args.This());
+}
+
+
+void VsamFile::AllocSync(const FunctionCallbackInfo<Value>& args) {
   if (args.IsConstructCall()) {
-    // Invoked as constructor: `new MyObject(...)`
-
-    // Check the number of arguments passed.
-    if (args.Length() < 2) {
-      // Throw an Error that is passed back to JavaScript
-      isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Wrong number of arguments")));
-      return;
-    }
-
-    if (!args[0]->IsString()) {
-      isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Wrong arguments")));
-      return;
-    }
-
-    std::string path (*v8::String::Utf8Value(args[0]->ToString()));
-    transform(path.begin(), path.end(), path.begin(), [](char c) -> char {
-      __a2e_l(&c, 1);
-      return c;
-    });
-
-    Local<Object> schema = args[1]->ToObject();
-    Local<Array> properties = schema->GetPropertyNames();
-    std::vector<LayoutItem> layout;
-    for (int i = 0; i < properties->Length(); ++i) {
-      String::Utf8Value name(properties->Get(i)->ToString());
-
-      Local<Object> item = Local<Object>::Cast(schema->Get(properties->Get(i)));
-      if (item.IsEmpty()) {
-        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Json is incorrect")));
-        return;
-      }
-
-      Local<Value> length = Local<Value>::Cast(item->Get( Local<String>(String::NewFromUtf8(isolate, "maxLength"))));
-      if (length.IsEmpty() || !length->IsNumber()) {
-        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, "Json is incorrect")));
-        return;
-      }
-      
-      layout.push_back(LayoutItem(name, length->ToInteger()->Value(), LayoutItem::STRING));
-    }
-
-    VsamFile *obj = new VsamFile(path, layout, isolate);
-    obj->Wrap(args.This());
-    args.GetReturnValue().Set(args.This());
+    Construct(args, true);
   } else {
     // Invoked as plain function `MyObject(...)`, turn into construct call.
-    const int argc = 1;
-    Local<Value> argv[argc] = { args[0] };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
+    Isolate* isolate = args.GetIsolate();
+    const int argc = 2;
+    Local<Value> argv[argc] = { args[0], args[1] };
+    Local<Function> cons = Local<Function>::New(isolate, AllocSyncConstructor);
     Local<Context> context = isolate->GetCurrentContext();
     MaybeLocal<Object> instance =
         cons->NewInstance(context, argc, argv);
@@ -412,17 +457,59 @@ void VsamFile::New(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
-void VsamFile::NewInstance(const FunctionCallbackInfo<Value>& args) {
+
+void VsamFile::OpenSync(const FunctionCallbackInfo<Value>& args) {
+  if (args.IsConstructCall()) {
+    Construct(args, false);
+  } else {
+    // Invoked as plain function `MyObject(...)`, turn into construct call.
+    Isolate* isolate = args.GetIsolate();
+    const int argc = 2;
+    Local<Value> argv[argc] = { args[0], args[1] };
+    Local<Function> cons = Local<Function>::New(isolate, OpenSyncConstructor);
+    Local<Context> context = isolate->GetCurrentContext();
+    MaybeLocal<Object> instance =
+        cons->NewInstance(context, argc, argv);
+    if(!instance.IsEmpty())
+      args.GetReturnValue().Set(instance.ToLocalChecked());
+  }
+}
+
+
+void VsamFile::Exist(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();
+  if (args.Length() != 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
 
-  const unsigned argc = 3;
-  Local<Value> argv[argc] = { args[0] , args[1], args[2] };
-  Local<Function> cons = Local<Function>::New(isolate, constructor);
-  Local<Context> context = isolate->GetCurrentContext();
-  MaybeLocal<Object> instance = cons->NewInstance(context, argc, argv);
+  if (!args[0]->IsString()) {
+    isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
 
-  if (!instance.IsEmpty())
-    args.GetReturnValue().Set(instance.ToLocalChecked());
+  std::string path (*v8::String::Utf8Value(args[0]->ToString()));
+  transform(path.begin(), path.end(), path.begin(), [](char c) -> char {
+    __a2e_l(&c, 1);
+    return c;
+  });
+
+#pragma convert("IBM-1047")
+    std::ostringstream dataset;
+    dataset << "//'" << path.c_str() << "'";
+    FILE *stream = fopen(dataset.str().c_str(), "rb+,type=record");
+#pragma convert(pop)
+
+    if (stream == NULL) {
+      args.GetReturnValue().Set(Boolean::New(isolate, false));
+      return;
+    }
+
+    fclose(stream);
+    args.GetReturnValue().Set(Boolean::New(isolate, true));
 }
 
 

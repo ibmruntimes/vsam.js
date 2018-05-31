@@ -1,5 +1,5 @@
 # vsam
-This NodeJS module enables you to read VSAM files on z/OS
+This NodeJS module enables you to read VSAM datasets on z/OS
 
 ## Installation
 
@@ -17,17 +17,17 @@ Vsam.js is designed to be a bare bones vsam I/O module.
 
 ```js
 try {
-  file = vsam.open("//'sample.test.vsam.ksds'",
+  dataset = vsam.open("//'sample.test.vsam.ksds'",
                    JSON.parse(fs.readFileSync('schema.json')));
-  file.find("0321", (record, err) => {
+  dataset.find("0321", (record, err) => {
       if (err != null)
         console.log("Not found!");
       else {
         assert(record.key, "0321");
         console.log(`Current details: Name(${record.name}), Gender(${record.gender})`);
         record.name = "KEVIN";
-        file.update(record, (err) => {
-          file.close();
+        dataset.update(record, (err) => {
+          dataset.close();
         });
       }
     }
@@ -54,18 +54,18 @@ schema.json looks like this:
 
 ## Table of contents
 
-- [Opening a vsam file for I/O](#opening-a-vsam-file-for-io)
-- [Closing a vsam file](#closing-a-vsam-file)
-- [Reading a record from a vsam file](#reading-a-record-from-a-vsam-file)
-- [Writing a record to a vsam file](#writing-a-record-to-a-vsam-file)
-- [Finding a record in a vsam file](#finding-a-record-in-a-vsam-file)
-- [Updating a record in a vsam file](#updating-a-record-in-a-vsam-file)
-- [Deleting a record from a vsam file](#deleting-a-record-from-a-vsam-file)
-- [Deallocating a vsam file](#deallocating-a-vsam-file)
+- [Opening a vsam dataset for I/O](#opening-a-vsam-dataset-for-io)
+- [Closing a vsam dataset](#closing-a-vsam-dataset)
+- [Reading a record from a vsam dataset](#reading-a-record-from-a-vsam-dataset)
+- [Writing a record to a vsam dataset](#writing-a-record-to-a-vsam-dataset)
+- [Finding a record in a vsam dataset](#finding-a-record-in-a-vsam-dataset)
+- [Updating a record in a vsam dataset](#updating-a-record-in-a-vsam-dataset)
+- [Deleting a record from a vsam dataset](#deleting-a-record-from-a-vsam-dataset)
+- [Deallocating a vsam dataset](#deallocating-a-vsam-dataset)
 
 ---
 
-## Opening a vsam file for I/O
+## Opening a vsam dataset for I/O
 
 ```js
 const vsam = require('vsam');
@@ -75,12 +75,12 @@ var vsamObj = vsam.open( "//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('sc
 
 * The first argument is the VSAM dataset name.
 * The second argument is the JSON object derived from the schema file.
-* The value returned is a vsam file handle. The rest of this readme describes the operations that can be performed on this object.
+* The value returned is a vsam dataset handle. The rest of this readme describes the operations that can be performed on this object.
 * Usage notes:
-  * On opening a vsam file, the cursor is placed at the first record.
+  * On opening a vsam dataset, the cursor is placed at the first record.
   * On error, this function with throw an exception.
 
-## Closing a vsam file
+## Closing a vsam dataset
 
 ```js
 vsamObj.close((err) => { /* Handle error. */ });
@@ -89,7 +89,7 @@ vsamObj.close((err) => { /* Handle error. */ });
 * The first argument is the file descriptor.
 * The second argument is a callback function containing an error object if the close operation failed.
 
-## Reading a record from a vsam file
+## Reading a record from a vsam dataset
 
 ```js
 vsamObj.read((record, err) => { 
@@ -103,7 +103,7 @@ vsamObj.read((record, err) => {
 * Usage notes:
   * The read operation retrievs the record under the current cursor and advances the cursor by one record length.
 
-## Writing a record to a vsam file
+## Writing a record to a vsam dataset
 
 ```js
 vsamObj.write((record, (err) => { 
@@ -117,7 +117,7 @@ vsamObj.write((record, (err) => {
   * The write operation advances the cursor by one record length after the newly written record.
   * The write operation will overwrite any existing record with the same key.
 
-## Finding a record in a vsam file
+## Finding a record in a vsam dataset
 
 ```js
 vsamObj.find((recordKey, (record, err) => { 
@@ -133,7 +133,7 @@ vsamObj.find((recordKey, (record, err) => {
   * The find operation will place the cursor at the queried record (if found).
   * The record object in the callback will by null if the query failed to retrieve a record.
   
-## Updating a record in a vsam file
+## Updating a record in a vsam dataset
 
 ```js
 vsamObj.update((recordKey, (err) => { 
@@ -147,7 +147,7 @@ vsamObj.update((recordKey, (err) => {
 * Usage notes:
   * The update operation will write over the record currently under the cursor.
   
-## Deleting a record from a vsam file
+## Deleting a record from a vsam dataset
 
 ```js
 vsamObj.delete((err) => { /* Handle error. */ });
@@ -155,11 +155,11 @@ vsamObj.delete((err) => { /* Handle error. */ });
 
 * The first argument is a callback function containing an error object if the delete operation failed.
 * Usage notes:
-  * The record under the current position of the file cursor gets deleted.
+  * The record under the current position of the dataset cursor gets deleted.
   * This will usually be placed inside the callback of a find operation. The find operation places
     the cursor on the desired record and the subsequent delete operation deletes it.
 
-## Deallocating a vsam file
+## Deallocating a vsam dataset
 
 ```js
 vsamObj.dealloc((err) => { /* Handle error. */ });

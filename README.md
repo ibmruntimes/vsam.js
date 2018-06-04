@@ -146,7 +146,7 @@ vsamObj.write((record, (err) => {
 ## Finding a record in a vsam dataset
 
 ```js
-vsamObj.find((recordKey, (record, err) => { 
+vsamObj.find(recordKey, (record, err) => { 
   /* Use record information. */
 });
 ```

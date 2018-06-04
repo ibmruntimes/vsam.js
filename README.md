@@ -17,7 +17,7 @@ Vsam.js is designed to be a bare bones vsam I/O module.
 
 ```js
 try {
-  dataset = vsam.open("//'sample.test.vsam.ksds'",
+  dataset = vsam.open("sample.test.vsam.ksds",
                    JSON.parse(fs.readFileSync('schema.json')));
   dataset.find("0321", (record, err) => {
       if (err != null)
@@ -72,7 +72,7 @@ schema.json looks like this:
 ```js
 const vsam = require('vsam');
 const fs = require('fs');
-var vsamObj = vsam.allocSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
+var vsamObj = vsam.allocSync("VSAM.DATASET.NAME", JSON.parse(fs.readFileSync('schema.json')));
 ```
 
 * The first argument is the VSAM dataset name to allocate.
@@ -87,7 +87,7 @@ var vsamObj = vsam.allocSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync
 ```js
 const vsam = require('vsam');
 const fs = require('fs');
-var vsamObj = vsam.openSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
+var vsamObj = vsam.openSync("VSAM.DATASET.NAME", JSON.parse(fs.readFileSync('schema.json')));
 ```
 
 * The first argument is the name of an existing VSAM dataset.
@@ -101,7 +101,7 @@ var vsamObj = vsam.openSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync(
 ```js
 const vsam = require('vsam');
 const fs = require('fs');
-vsam.exist("//'VSAM.DATASET.NAME'");
+vsam.exist("VSAM.DATASET.NAME");
 ```
 
 * The first argument is the name of an existing VSAM dataset.

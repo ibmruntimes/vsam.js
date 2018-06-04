@@ -162,7 +162,7 @@ vsamObj.find(recordKey, (record, err) => {
 ## Updating a record in a vsam dataset
 
 ```js
-vsamObj.update((recordKey, (err) => { 
+vsamObj.update(record, (err) => { 
    ...
 });
 ```

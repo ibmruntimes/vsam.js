@@ -132,7 +132,7 @@ vsamObj.read((record, err) => {
 ## Writing a record to a vsam dataset
 
 ```js
-vsamObj.write((record, (err) => { 
+vsamObj.write(record, (err) => { 
   /* Make sure err is null. */
 });
 ```

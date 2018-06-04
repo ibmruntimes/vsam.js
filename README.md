@@ -72,7 +72,7 @@ schema.json looks like this:
 ```js
 const vsam = require('vsam');
 const fs = require('fs');
-var vsamObj = vsam.openSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
+var vsamObj = vsam.allocSync("//'VSAM.DATASET.NAME'", JSON.parse(fs.readFileSync('schema.json')));
 ```
 
 * The first argument is the VSAM dataset name to allocate.

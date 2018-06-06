@@ -71,7 +71,6 @@ void VsamFile::DeleteCallback(uv_work_t* req, int status) {
 void VsamFile::WriteCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
   delete req;
-  //TODO: what if the write failed (buf != NULL)
 
   if (status == UV_ECANCELED)
     return;
@@ -79,12 +78,9 @@ void VsamFile::WriteCallback(uv_work_t* req, int status) {
   const unsigned argc = 1;
   HandleScope scope(obj->isolate_);
   Local<Value> argv[argc];
-  if (obj->buf_ != NULL) {
+  if (obj->lastrc_ != obj->reclen_)
     argv[0] = Exception::TypeError(
                 String::NewFromUtf8(obj->isolate_, "Failed to write"));
-    free(obj->buf_);
-    obj->buf_ = NULL;
-  }
   else
     argv[0] = v8::Null(obj->isolate_);
   auto fn = Local<Function>::New(obj->isolate_, obj->cb_);
@@ -196,9 +192,7 @@ void VsamFile::Delete(uv_work_t* req) {
 
 void VsamFile::Write(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
-  int ret = fwrite(obj->buf_, obj->reclen_, 1, obj->stream_);
-  if (ret == 0)
-    return;
+  obj->lastrc_ = fwrite(obj->buf_, 1, obj->reclen_, obj->stream_);
   free(obj->buf_);
   obj->buf_ = NULL;
 }

@@ -1,5 +1,5 @@
 # vsam
-This NodeJS module enables you to read VSAM datasets on z/OS
+This NodeJS module enables you to read and modify VSAM datasets on z/OS
 
 ## Installation
 
@@ -16,9 +16,9 @@ Node.js 6.11.4 or higher is required.
 Vsam.js is designed to be a bare bones vsam I/O module.
 
 ```js
-try {
-  dataset = vsam.open("sample.test.vsam.ksds",
-                   JSON.parse(fs.readFileSync('schema.json')));
+  if (vsam.exist("sample.test.vsam.ksds"))
+    dataset = vsam.openSync("sample.test.vsam.ksds",
+                            JSON.parse(fs.readFileSync('schema.json')));
   dataset.find("0321", (record, err) => {
       if (err != null)
         console.log("Not found!");
@@ -101,7 +101,9 @@ var vsamObj = vsam.openSync("VSAM.DATASET.NAME", JSON.parse(fs.readFileSync('sch
 ```js
 const vsam = require('vsam');
 const fs = require('fs');
-vsam.exist("VSAM.DATASET.NAME");
+if (vsam.exist("VSAM.DATASET.NAME")) {
+  /* Open the vsam file. */
+}
 ```
 
 * The first argument is the name of an existing VSAM dataset.

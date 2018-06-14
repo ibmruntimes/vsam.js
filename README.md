@@ -169,7 +169,7 @@ vsamObj.update(record, (err) => {
 });
 ```
 
-* The first argument is record key (usually a string).
+* The first argument is record object.
 * The second argument is a callback
   * The first argument is an error object in case the operation failed.
 * Usage notes:

@@ -151,10 +151,22 @@ vsamObj.write(record, (err) => {
 vsamObj.find(recordKey, (record, err) => { 
   /* Use record information. */
 });
+vsamObj.findeq(recordKey, (record, err) => { 
+  /* Use record information. */
+});
+vsamObj.findge(recordKey, (record, err) => { 
+  /* Use record information. */
+});
+vsamObj.findlast(recordKey, (record, err) => { 
+  /* Use record information. */
+});
+vsamObj.findfirst(recordKey, (record, err) => { 
+  /* Use record information. */
+});
 ```
 
-* The first argument is record key (usually a string).
-* The second argument is a callback
+* The first argument is record key (usually a string) (except for findlast and findfirst).
+* The second argument is a callback (this is the first argument for findlast and findfirst)
   * The first argument is a record object retrieved using the key provided.
   * The second argument is an error object in case the operation failed.
 * Usage notes:

@@ -43,7 +43,11 @@ class VsamFile : public node::ObjectWrap {
   /* Entry point from Javascript */
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Read(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Find(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void Find(const v8::FunctionCallbackInfo<v8::Value>& args, int equality);
+  static void FindEq(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void FindGe(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void FindFirst(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void FindLast(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Update(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Write(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Delete(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -82,6 +86,7 @@ class VsamFile : public node::ObjectWrap {
   FILE *stream_;
   void *buf_;
   int lastrc_;
+  int equality_;
   std::string errmsg_;
 };
 

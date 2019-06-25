@@ -149,7 +149,7 @@ void VsamFile::ReadCallback(uv_work_t* req, int status) {
 void VsamFile::Find(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
 
-  if (flocate(obj->stream_, obj->key_.c_str(), obj->keylen_, __KEY_EQ)) {
+  if (flocate(obj->stream_, obj->key_.c_str(), obj->keylen_, obj->equality_)) {
     obj->buf_ = NULL;
     return;
   }
@@ -353,7 +353,11 @@ VsamFile::~VsamFile() {
 void VsamFile::SetPrototypeMethods(Local<FunctionTemplate>& tpl) {
   // Prototype
   NODE_SET_PROTOTYPE_METHOD(tpl, "read", Read);
-  NODE_SET_PROTOTYPE_METHOD(tpl, "find", Find);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "find", FindEq);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "findeq", FindEq);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "findge", FindGe);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "findfirst", FindFirst);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "findlast", FindLast);
   NODE_SET_PROTOTYPE_METHOD(tpl, "update", Update);
   NODE_SET_PROTOTYPE_METHOD(tpl, "write", Write);
   NODE_SET_PROTOTYPE_METHOD(tpl, "delete", Delete);
@@ -636,40 +640,74 @@ void VsamFile::Update(const FunctionCallbackInfo<Value>& args) {
   uv_queue_work(uv_default_loop(), request, Update, UpdateCallback);
 }
 
+void VsamFile::FindEq(const FunctionCallbackInfo<Value>& args) {
+  Find(args, __KEY_EQ);
+}
 
-void VsamFile::Find(const FunctionCallbackInfo<Value>& args) {
+void VsamFile::FindGe(const FunctionCallbackInfo<Value>& args) {
+  Find(args, __KEY_GE);
+}
+
+void VsamFile::FindFirst(const FunctionCallbackInfo<Value>& args) {
+  Find(args, __KEY_FIRST);
+}
+
+void VsamFile::FindLast(const FunctionCallbackInfo<Value>& args) {
+  Find(args, __KEY_LAST);
+}
+
+void VsamFile::Find(const FunctionCallbackInfo<Value>& args, int equality) {
   Isolate* isolate = args.GetIsolate();
 
-  if (args.Length() < 2) {
-    // Throw an Error that is passed back to JavaScript
-    isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Wrong number of arguments")));
-    return;
-  }
+  std::string key = "";
+  int callbackArg = 0;
 
-  if (!args[0]->IsString() || !args[1]->IsFunction()) {
-    isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Wrong arguments")));
-    return;
-  }
+  if (equality != __KEY_LAST && equality != __KEY_FIRST)  {
+	if (args.Length() < 2) {
+		// Throw an Error that is passed back to JavaScript
+		isolate->ThrowException(Exception::TypeError(
+			String::NewFromUtf8(isolate, "Wrong number of arguments")));
+		return;
+	}
 
-  std::string key (*v8::String::Utf8Value(args[0]->ToString()));
-  transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
-    __a2e_l(&c, 1);
-    return c;
-  });
+	if (!args[0]->IsString() || !args[1]->IsFunction()) {
+		isolate->ThrowException(Exception::TypeError(
+			String::NewFromUtf8(isolate, "First argument must be a string.  Second argument must be a function.")));
+		return;
+	}
+
+	key = std::string(*v8::String::Utf8Value(args[0]->ToString()));
+	transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
+		__a2e_l(&c, 1);
+		return c;
+	});
+
+    callbackArg = 1;
+  } else {
+	if (args.Length() < 1) {
+		// Throw an Error that is passed back to JavaScript
+		isolate->ThrowException(Exception::TypeError(
+			String::NewFromUtf8(isolate, "Wrong number of arguments.  1 argument expected.")));
+		return;
+	}
+	if (!args[0]->IsFunction()) {
+		isolate->ThrowException(Exception::TypeError(
+			String::NewFromUtf8(isolate, "First argument must be a function")));
+		return;
+	}
+  }
 
   VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
   uv_work_t* request = new uv_work_t;
   request->data = obj;
 
-  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[1]));
+  obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[callbackArg]));
   obj->isolate_ = isolate;
   obj->key_ = key;
+  obj->equality_ = equality;
 
   uv_queue_work(uv_default_loop(), request, Find, ReadCallback);
 }
-
 
 void VsamFile::Read(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = args.GetIsolate();

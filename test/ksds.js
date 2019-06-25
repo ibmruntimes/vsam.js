@@ -92,6 +92,21 @@ describe("Key Sequenced Dataset", function() {
     });
   });
 
+ it("write another new record", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test.json')))
+    record = {
+      key: "00127",
+      name: "JIM",
+      gender: "MALE"
+    };
+    file.write(record, (err) => {
+      assert.ifError(err);
+      expect(file.close()).to.not.throw;
+      done();
+    });
+  });
+
   it("read a record and verify properties", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test.json')))
@@ -110,6 +125,30 @@ describe("Key Sequenced Dataset", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test.json')))
     file.find("00126", (record, err) => {
+      assert.ifError(err);
+      assert.equal(record.key, "00126", "record has been created");
+      assert.equal(record.name, "JOHN", "created record has correct name");
+      assert.equal(record.gender, "MALE", "created record has correct gender");
+      expect(file.close()).to.not.throw;
+      done();
+    });
+    file.findlast((record, err) => {
+      assert.ifError(err);
+      assert.equal(record.key, "00127", "record has been created");
+      assert.equal(record.name, "JIM", "created record has correct name");
+      assert.equal(record.gender, "MALE", "created record has correct gender");
+      expect(file.close()).to.not.throw;
+      done();
+    });
+    file.findfirst((record, err) => {
+      assert.ifError(err);
+      assert.equal(record.key, "00126", "record has been created");
+      assert.equal(record.name, "JOHN", "created record has correct name");
+      assert.equal(record.gender, "MALE", "created record has correct gender");
+      expect(file.close()).to.not.throw;
+      done();
+    });
+    file.findge("00120", (record, err) => {
       assert.ifError(err);
       assert.equal(record.key, "00126", "record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");

@@ -1,0 +1,14 @@
+{
+  "key": { 
+    "type": "hexadecimal",
+    "maxLength": 8
+  },
+  "name": {
+    "type": "string",
+    "maxLength": 10
+  },
+  "amount": {
+    "type": "hexadecimal",
+    "maxLength": 8
+  }
+}

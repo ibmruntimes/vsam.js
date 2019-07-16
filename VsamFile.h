@@ -82,6 +82,8 @@ class VsamFile : public node::ObjectWrap {
   v8::Isolate* isolate_;
   std::string path_;
   std::string key_;
+  char* keybuf_;
+  int keybuf_len_;
   std::vector<LayoutItem> layout_;
   int key_i_;
   unsigned keylen_, reclen_;

@@ -32,8 +32,8 @@ using v8::MaybeLocal;
 Persistent<Function> VsamFile::OpenSyncConstructor;
 Persistent<Function> VsamFile::AllocSyncConstructor;
 
-static const char *hexstrToBuffer (char *hexbuf, int buflen, const char* hexstr);
-static const char *bufferToHexstr (char *hexstr, const char* hexbuf, const int hexbuflen);
+static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr);
+static const char* bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen);
 
 static void print_amrc() {
   __amrc_type currErr = *__amrc; /* copy contents of __amrc */
@@ -158,33 +158,48 @@ void VsamFile::ReadCallback(uv_work_t* req, int status) {
 void VsamFile::Find(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
   int rc;
-  if (obj->key_i_ >= 0) {
+  const char* buf;
+  int buflen;
+  if (obj->keybuf_) {
+    if (obj->keybuf_len_==0) {
+      Exception::TypeError(String::NewFromUtf8(obj->isolate_,
+                           "find: Buffer object is empty."));
+    }
+    buf = obj->keybuf_;
+    buflen = obj->keybuf_len_;
+  } else {
     LayoutItem& key_layout = obj->layout_[obj->key_i_];
     if (key_layout.type == LayoutItem::HEXADECIMAL) {
       char buf[key_layout.maxLength];
       hexstrToBuffer(buf, sizeof(buf), obj->key_.c_str());
       rc = flocate(obj->stream_, buf, obj->keylen_, obj->equality_);
       goto chk;
+    } else {
+      buf = obj->key_.c_str();
+      buflen = obj->keylen_;
     }
   }
-  rc = flocate(obj->stream_, obj->key_.c_str(), obj->keylen_, obj->equality_);
+  rc = flocate(obj->stream_, buf, buflen, obj->equality_);
 
 chk: 
-  if (rc) {
-    obj->buf_ = NULL;
-    return;
+  if (rc==0) {
+    char buf[obj->reclen_];
+    int ret = fread(buf, obj->reclen_, 1, obj->stream_);
+    //TODO: if read fails
+    if (ret == 1) {
+      obj->buf_ = malloc(obj->reclen_);
+      //TODO: if malloc fails
+      memcpy(obj->buf_, buf, obj->reclen_);
+      return;
+    }
   }
-
-  char buf[obj->reclen_];
-  int ret = fread(buf, obj->reclen_, 1, obj->stream_);
-  //TODO: if read fails
-  if (ret == 1) {
-    obj->buf_ = malloc(obj->reclen_);
-    //TODO: if malloc fails
-    memcpy(obj->buf_, buf, obj->reclen_);
-  }
-  else {
+  if (obj->buf_) {
+    free(obj->buf_);
     obj->buf_ = NULL;
+  }
+  if (obj->keybuf_) {
+    free(obj->keybuf_);
+    obj->keybuf_ = NULL;
   }
 }
 
@@ -197,9 +212,15 @@ void VsamFile::Read(uv_work_t* req) {
     obj->buf_ = malloc(obj->reclen_);
     //TODO: if malloc fails
     memcpy(obj->buf_, buf, obj->reclen_);
+    return;
   }
-  else {
+  if (obj->buf_) {
+    free(obj->buf_);
     obj->buf_ = NULL;
+  }
+  if (obj->keybuf_) {
+    free(obj->keybuf_);
+    obj->keybuf_ = NULL;
   }
 }
 
@@ -215,6 +236,10 @@ void VsamFile::Write(uv_work_t* req) {
   obj->lastrc_ = fwrite(obj->buf_, 1, obj->reclen_, obj->stream_);
   free(obj->buf_);
   obj->buf_ = NULL;
+  if (obj->keybuf_) {
+    free(obj->keybuf_);
+    obj->keybuf_ = NULL;
+  }
 }
 
 
@@ -226,6 +251,10 @@ void VsamFile::Update(uv_work_t* req) {
   }
   free(obj->buf_);
   obj->buf_ = NULL;
+  if (obj->keybuf_) {
+    free(obj->keybuf_);
+    obj->keybuf_ = NULL;
+  }
 }
 
 
@@ -280,7 +309,9 @@ VsamFile::VsamFile(std::string& path, std::vector<LayoutItem>& layout,
     layout_(layout),
     key_i_(key_i),
     isolate_(isolate),
-    buf_(NULL) {
+    buf_(NULL),
+    keybuf_(NULL),
+    keybuf_len_(0) {
 
 #pragma convert("IBM-1047")
     std::ostringstream dataset;
@@ -614,33 +645,32 @@ void VsamFile::Write(const FunctionCallbackInfo<Value>& args) {
   Local<Object> record = args[0]->ToObject();
   VsamFile* obj = ObjectWrap::Unwrap<VsamFile>(args.Holder());
   obj->buf_ = malloc(obj->reclen_); //TODO: error
+  memset(obj->buf_,0,obj->reclen_);
   char* buf = (char*)obj->buf_;
   for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
-    if (i->type == LayoutItem::STRING) {
-      Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0]))));
-      std::string key (*v8::String::Utf8Value(field));
-      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
-        __a2e_l(&c, 1);
-        return c;
-      });
-      memcpy(buf, key.c_str(), key.length() + 1);
-      buf += i->maxLength; //TODO: error if key length > maxLength
-    }
-    else if (i->type == LayoutItem::HEXADECIMAL) {
-      Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0]))));
-      std::string key (*v8::String::Utf8Value(field));
-      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
-        __a2e_l(&c, 1);
-        return c;
-      });
-      hexstrToBuffer(buf, i->maxLength, key.c_str());
-      buf += i->maxLength;
-    }
-    else {
+    Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0]))));
+    if (!field->IsString()) {
       isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Unsupported JSON data type")));
+          String::NewFromUtf8(isolate, "Currently only string (including hexadecimal string) is allowed as a field value.")));
       return;
     }
+    if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
+      std::string key (*v8::String::Utf8Value(field));
+      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
+        __a2e_l(&c, 1);
+        return c;
+      });
+      if (i->type == LayoutItem::STRING) {
+        memcpy(buf, key.c_str(), key.length() + 1);
+      } else {
+        hexstrToBuffer(buf, i->maxLength, key.c_str());
+      }
+    } else {
+      isolate->ThrowException(Exception::TypeError(
+          String::NewFromUtf8(isolate, "Unexpected JSON data type")));
+      return;
+    }
+    buf += i->maxLength;
   }
 
   uv_work_t* request = new uv_work_t;
@@ -672,29 +702,28 @@ void VsamFile::Update(const FunctionCallbackInfo<Value>& args) {
   obj->buf_ = malloc(obj->reclen_); //TODO: error
   char* buf = (char*)obj->buf_;
   for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
-    if (i->type == LayoutItem::STRING) { 
-      Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0]))));
-      std::string key (*v8::String::Utf8Value(field));
-      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
-        __a2e_l(&c, 1);
-        return c;
-      });
-      memcpy(buf, key.c_str(), key.length() + 1);
-      buf += i->maxLength; //TODO: error if key length > maxLength
-    }
-    else if (i->type == LayoutItem::HEXADECIMAL) {
-      Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0]))));
-      std::string key (*v8::String::Utf8Value(field));
-      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
-        __a2e_l(&c, 1);
-        return c;
-      });
-      hexstrToBuffer(buf, i->maxLength, key.c_str());
-      buf += i->maxLength;
-    }
-    else {
+    Local<String> field = Local<String>::Cast(record->Get(String::NewFromUtf8(obj->isolate_, &(i->name[0]))));
+    if (!field->IsString()) {
       isolate->ThrowException(Exception::TypeError(
-          String::NewFromUtf8(isolate, "Unsupported JSON data type")));
+          String::NewFromUtf8(isolate, "Currently only string (including hexadecimal string) is allowed as a field value.")));
+      return;
+    }
+    if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
+      std::string key (*v8::String::Utf8Value(field));
+      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
+        __a2e_l(&c, 1);
+        return c;
+      });
+      if (i->type == LayoutItem::STRING) {
+        memcpy(buf, key.c_str(), key.length() + 1);
+      } else {
+        hexstrToBuffer(buf, i->maxLength, key.c_str());
+      }
+      buf += i->maxLength;
+
+    } else {
+      isolate->ThrowException(Exception::TypeError(
+          String::NewFromUtf8(isolate, "Unexpected JSON data type")));
       return;
     }
   }
@@ -729,6 +758,8 @@ void VsamFile::Find(const FunctionCallbackInfo<Value>& args, int equality) {
 
   std::string key = "";
   int callbackArg = 0;
+  char* keybuf = NULL;
+  int keybuf_len = 0;
 
   if (equality != __KEY_LAST && equality != __KEY_FIRST)  {
     if (args.Length() < 2) {
@@ -738,24 +769,48 @@ void VsamFile::Find(const FunctionCallbackInfo<Value>& args, int equality) {
       return;
     }
 
-    if (!args[0]->IsString() || !args[1]->IsFunction()) {
+    if (args[0]->IsString()) {
+      key = std::string(*v8::String::Utf8Value(args[0]->ToString()));
+      transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
+        __a2e_l(&c, 1);
+        return c;
+      });
+      callbackArg = 1;
+    } else if (args[0]->IsObject()) {
+      char* buf = node::Buffer::Data(args[0]->ToObject());
+      if (!args[1]->IsUint32()) {
+        isolate->ThrowException(Exception::TypeError(
+          String::NewFromUtf8(isolate, "Buffer argument must be followed by its length.")));
+        return;
+      }
+      keybuf_len = args[1]->Uint32Value();
+      if (keybuf_len > 0) {
+        keybuf = (char*)malloc(keybuf_len); // TODO check error
+        memcpy(keybuf, buf, keybuf_len);
+      }
+      callbackArg = 2;
+    } else {
       isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "First argument must be a string.  Second argument must be a function.")));
+        String::NewFromUtf8(isolate, "First argument must be either a string or a Buffer object.")));
+      return;
+    } 
+    if (!args[callbackArg]->IsFunction()) {
+      char err[128];
+      if (callbackArg==1) {
+        strcpy(err,"Second argument must be a function.");
+      } else if (callbackArg==2) {
+        strcpy(err,"Thrid argument must be a function.");
+      }
+      isolate->ThrowException(Exception::TypeError(
+        String::NewFromUtf8(isolate, err)));
       return;
     }
 
-    key = std::string(*v8::String::Utf8Value(args[0]->ToString()));
-    transform(key.begin(), key.end(), key.begin(), [](char c) -> char {
-      __a2e_l(&c, 1);
-      return c;
-    });
-
-    callbackArg = 1;
   } else {
     if (args.Length() < 1) {
       // Throw an Error that is passed back to JavaScript
       isolate->ThrowException(Exception::TypeError(
-        String::NewFromUtf8(isolate, "Wrong number of arguments.  1 argument expected.")));
+        String::NewFromUtf8(isolate, "Wrong number of arguments. 1 argument expected.")));
       return;
     }
     if (!args[0]->IsFunction()) {
@@ -771,7 +826,12 @@ void VsamFile::Find(const FunctionCallbackInfo<Value>& args, int equality) {
 
   obj->cb_ = Persistent<Function>(isolate, Handle<Function>::Cast(args[callbackArg]));
   obj->isolate_ = isolate;
-  obj->key_ = key;
+  if (!keybuf)
+    obj->key_ = key;
+  else {
+    obj->keybuf_ = keybuf;
+    obj->keybuf_len_ = keybuf_len;
+  }
   obj->equality_ = equality;
 
   uv_queue_work(uv_default_loop(), request, Find, ReadCallback);
@@ -835,7 +895,7 @@ void VsamFile::Dealloc(const FunctionCallbackInfo<Value>& args) {
   uv_queue_work(uv_default_loop(), request, Dealloc, DeallocCallback);
 }
 
-static const char *hexstrToBuffer (char *hexbuf, int buflen, const char* hexstr) {
+static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
    const int hexstrlen = strlen(hexstr);
    memset(hexbuf,0,buflen);
    char xx[2];
@@ -859,7 +919,7 @@ static const char *hexstrToBuffer (char *hexbuf, int buflen, const char* hexstr)
    return hexbuf;
 }
 
-static const char *bufferToHexstr (char *hexstr, const char* hexbuf, const int hexbuflen) {
+static const char* bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen) {
    int i, j;
    for (i=0,j=0; i<hexbuflen; i++,j+=2) {
      if (hexbuf[i]==0) {

@@ -77,11 +77,12 @@ describe("Key Sequenced Dataset #2", function() {
     done();
   });
 
- it("write new record", function(done) {
+ it("write new record, provide key as Buffer.toString('hex')", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')))
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
     record = {
-      key: "a1b2c3d4",
+      key: keybuf.toString('hex'),
       name: "JOHN",
       amount: "1234"
     };
@@ -92,9 +93,12 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
- it("write another new record", function(done) {
+ it("write another new record, provide key as Buffer", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')))
+// not supported yet:
+//    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]),
+//    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]).toString('hex'),
     record = {
       key: "e5f6789afabcd",
       name: "JIM",
@@ -121,10 +125,11 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("find existing record and verify data", function(done) {
+  it("find existing record using Buffer and hexadecimal string as key, and verify data", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')))
-    file.find("a1b2c3d4", (record, err) => {
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
+    file.find(keybuf, keybuf.length, (record, err) => {
       assert.ifError(err);
       assert.equal(record.key, "a1b2c3d4", "1. record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
@@ -182,7 +187,13 @@ describe("Key Sequenced Dataset #2", function() {
   it("delete existing record", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')))
-    file.find("A1B2c3D4", (record, err) => { // mix uppercase and lowercase hex
+//  const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
+    const keybuf = Buffer.from([0xA1, 0xB2, 0xc3, 0xD4]);
+    file.find(keybuf, keybuf.length, (record, err) => {
+      assert.ifError(err);
+      assert.equal(record.key, "a1b2c3d4", "1. record has been created");
+      assert.equal(record.name, "JOHN", "created record has correct name");
+      assert.equal(record.amount, "1234", "created record has correct amount");
       file.delete( (err) => {
         assert.ifError(err);
         file.find("A1B2c3D4", (err) => {

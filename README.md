@@ -19,19 +19,30 @@ Vsam.js is designed to be a bare bones vsam I/O module.
   if (vsam.exist("sample.test.vsam.ksds"))
     dataset = vsam.openSync("sample.test.vsam.ksds",
                             JSON.parse(fs.readFileSync('schema.json')));
+
+  // find using a string as key:
   dataset.find("0321", (record, err) => {
-      if (err != null)
-        console.log("Not found!");
-      else {
-        assert(record.key, "0321");
-        console.log(`Current details: Name(${record.name}), Gender(${record.gender})`);
-        record.name = "KEVIN";
-        dataset.update(record, (err) => {
-          dataset.close();
-        });
-      }
+    if (err != null)
+      console.log("Not found!");
+    else {
+      assert(record.key, "0321");
+      console.log(`Current details: Name(${record.name}), Amount(${record.amount})`);
+      record.name = "KEVIN";
+      record.quantity = Buffer.from([0xe5, 0xf6, 0x78, 0x9a]).toString('hex');
+      dataset.update(record, (err) => {
+        dataset.close();
+      });
     }
-);
+  });
+
+  // or find using binary data as key (type must be set to "hexadecimal"):
+  const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
+  dataset.find(keybuf, keybuf.length, (record, err) => {
+    ...
+
+  // or:
+  dataset.find("0xa1b2c3d4", (record, err) => {
+    ...
 ```
 schema.json looks like this:
 
@@ -45,9 +56,9 @@ schema.json looks like this:
     "type": "string",
     "maxLength": 10
   },
-  "gender": {
-    "type": "string",
-    "maxLength": 10
+  "quantity": {
+    "type": "hexadecimal",
+    "maxLength": 4
   }
 }
 ```
@@ -58,6 +69,7 @@ schema.json looks like this:
 - [Allocating a vsam dataset for I/O](#allocating-a-vsam-dataset-for-io)
 - [Check if vsam dataset exists](#check-if-vsam-dataset-exists)
 - [Closing a vsam dataset](#closing-a-vsam-dataset)
+- [Data Types](#data-types)
 - [Reading a record from a vsam dataset](#reading-a-record-from-a-vsam-dataset)
 - [Writing a record to a vsam dataset](#writing-a-record-to-a-vsam-dataset)
 - [Finding a record in a vsam dataset](#finding-a-record-in-a-vsam-dataset)
@@ -67,7 +79,7 @@ schema.json looks like this:
 
 ---
 
-## ALlocating a vsam dataset for I/O
+## Allocating a vsam dataset for I/O
 
 ```js
 const vsam = require('vsam');
@@ -130,6 +142,16 @@ vsamObj.read((record, err) => {
   * The second argument will contain an error object in case the read operation failed.
 * Usage notes:
   * The read operation retrievs the record under the current cursor and advances the cursor by one record length.
+
+## Data Types
+
+The following data types are currently supported:
+* string
+  * find and write data stored as a string (character array)
+* hexadecimal
+  * find binary data using Buffer or hexadecimal string, write using a hexadecimal string representation of the binary data
+
+See [test/test2.json](https://github.com/ibmruntimes/vsam.js/blob/master/test/test2.json) and [test/ksds2.js](https://github.com/ibmruntimes/vsam.js/blob/master/test/ksds2.js) for an example covering both types.
 
 ## Writing a record to a vsam dataset
 

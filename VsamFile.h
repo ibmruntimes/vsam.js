@@ -25,7 +25,8 @@ class VsamFile : public node::ObjectWrap {
  private:
   struct LayoutItem {
     enum DataType {
-      STRING
+      STRING,
+      HEXADECIMAL
     };
 
     std::vector<char> name;
@@ -38,7 +39,7 @@ class VsamFile : public node::ObjectWrap {
   };
 
   explicit VsamFile(std::string&, std::vector<LayoutItem>&,
-                    v8::Isolate* isolate, bool alloc);
+                    v8::Isolate* isolate, bool alloc, int key_i);
 
   /* Entry point from Javascript */
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -81,7 +82,10 @@ class VsamFile : public node::ObjectWrap {
   v8::Isolate* isolate_;
   std::string path_;
   std::string key_;
+  char* keybuf_;
+  int keybuf_len_;
   std::vector<LayoutItem> layout_;
+  int key_i_;
   unsigned keylen_, reclen_;
   FILE *stream_;
   void *buf_;

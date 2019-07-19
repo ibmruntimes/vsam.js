@@ -14,7 +14,7 @@ const { execSync } = require('child_process');
 
 // Set IBM_VSAM_UID environment variable for customer uid
 const uid = process.env.IBM_VSAM_UID || execSync('whoami').slice(0, -1);
-const testSet = `${uid}.TEST.VSAM.KSDS2`;
+const testSet = `${uid}.TEST2.VSAM.KSDS2`;
 
 function readUntilEnd(file, done) {
   var end = false;
@@ -40,11 +40,11 @@ function readUntilEnd(file, done) {
   );
 }
 
-describe("Key Sequenced Dataset", function() {
+describe("Key Sequenced Dataset #2", function() {
   before(function() {
     if (vsam.exist(testSet)) {
       var file = vsam.openSync(testSet,
-          JSON.parse(fs.readFileSync('test/test.json')));
+          JSON.parse(fs.readFileSync('test/test2.json')));
       expect(file.close()).to.not.throw;
       file.dealloc((err) => {
         assert.ifError(err);
@@ -58,7 +58,7 @@ describe("Key Sequenced Dataset", function() {
 
   it("create an empty dataset", function(done) {
     var file = vsam.allocSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
     expect(file).not.be.null;
     expect(file.close()).to.not.throw;
     done();
@@ -71,19 +71,20 @@ describe("Key Sequenced Dataset", function() {
 
   it("open and close the existing dataset", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
     expect(file).to.not.be.null;
     expect(file.close()).to.not.throw;
     done();
   });
 
- it("write new record", function(done) {
+ it("write new record, provide key as Buffer.toString('hex')", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
     record = {
-      key: "00126",
+      key: keybuf.toString('hex'),
       name: "JOHN",
-      gender: "MALE"
+      amount: "1234"
     };
     file.write(record, (err) => {
       assert.ifError(err);
@@ -92,13 +93,16 @@ describe("Key Sequenced Dataset", function() {
     });
   });
 
- it("write another new record", function(done) {
+ it("write another new record, provide key as Buffer", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
+// not supported yet:
+//    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]),
+//    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]).toString('hex'),
     record = {
-      key: "00127",
+      key: "e5f6789afabcd",
       name: "JIM",
-      gender: "MALE"
+      amount: "9876543210"
     };
     file.write(record, (err) => {
       assert.ifError(err);
@@ -109,50 +113,51 @@ describe("Key Sequenced Dataset", function() {
 
   it("read a record and verify properties", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
     file.read( (record, err) => {
       assert.ifError(err);
       expect(record).to.not.be.null;
       expect(record).to.have.property('key');
       expect(record).to.have.property('name');
-      expect(record).to.have.property('gender');
+      expect(record).to.have.property('amount');
       expect(file.close()).to.not.throw;
       done();
     });
   });
 
-  it("find existing record and verify data", function(done) {
+  it("find existing record using Buffer and hexadecimal string as key, and verify data", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
-    file.find("00126", (record, err) => {
+                             JSON.parse(fs.readFileSync('test/test2.json')))
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
+    file.find(keybuf, keybuf.length, (record, err) => {
       assert.ifError(err);
-      assert.equal(record.key, "00126", "record has been created");
+      assert.equal(record.key, "a1b2c3d4", "1. record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
-      assert.equal(record.gender, "MALE", "created record has correct gender");
+      assert.equal(record.amount, "1234", "created record has correct amount");
       expect(file.close()).to.not.throw;
       done();
     });
     file.findlast((record, err) => {
       assert.ifError(err);
-      assert.equal(record.key, "00127", "record has been created");
+      assert.equal(record.key, "e5f6789afabcd", "2. record has been created");
       assert.equal(record.name, "JIM", "created record has correct name");
-      assert.equal(record.gender, "MALE", "created record has correct gender");
+      assert.equal(record.amount, "9876543210", "created record has correct amount");
       expect(file.close()).to.not.throw;
       done();
     });
     file.findfirst((record, err) => {
       assert.ifError(err);
-      assert.equal(record.key, "00126", "record has been created");
+      assert.equal(record.key, "a1b2c3d4", "3. record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
-      assert.equal(record.gender, "MALE", "created record has correct gender");
+      assert.equal(record.amount, "1234", "created record has correct amount");
       expect(file.close()).to.not.throw;
       done();
     });
-    file.findge("00120", (record, err) => {
+    file.findge("43b2c3d0", (record, err) => {
       assert.ifError(err);
-      assert.equal(record.key, "00126", "record has been created");
+      assert.equal(record.key, "a1b2c3d4", "4. record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
-      assert.equal(record.gender, "MALE", "created record has correct gender");
+      assert.equal(record.amount, "1234", "created record has correct amount");
       expect(file.close()).to.not.throw;
       done();
     });
@@ -160,18 +165,18 @@ describe("Key Sequenced Dataset", function() {
 
   it("write new record after read", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
     file.read((record, err) => {
-      record.key = "00125";
+      record.key = "e5f6789afabc"; // same as existing key (for JIM) but without the trailing d
       record.name = "JANE";
-      record.gender = "FEMALE";
+      record.amount = "4187832145";
       file.write(record, (err) => {
         assert.ifError(err);
-        file.find("00125", (record, err) => {
+        file.find("e5f6789afabc", (record, err) => {
           assert.ifError(err);
-          assert.equal(record.key, "00125", "record has been created");
-          assert.equal(record.name, "JANE", "created record has correct name");
-          assert.equal(record.gender, "FEMALE", "created record has correct gender");
+          assert.equal(record.key, "e5f6789afabc", "5. record has been created");
+          assert.equal(record.name, "JANE", "5. created record has correct name");
+          assert.equal(record.amount, "4187832145", "5. created record has correct amount");
           expect(file.close()).to.not.throw;
           done();
         });
@@ -181,11 +186,17 @@ describe("Key Sequenced Dataset", function() {
 
   it("delete existing record", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
-    file.find("00126", (record, err) => {
+                             JSON.parse(fs.readFileSync('test/test2.json')))
+//  const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
+    const keybuf = Buffer.from([0xA1, 0xB2, 0xc3, 0xD4]);
+    file.find(keybuf, keybuf.length, (record, err) => {
+      assert.ifError(err);
+      assert.equal(record.key, "a1b2c3d4", "1. record has been created");
+      assert.equal(record.name, "JOHN", "created record has correct name");
+      assert.equal(record.amount, "1234", "created record has correct amount");
       file.delete( (err) => {
         assert.ifError(err);
-        file.find("00126", (err) => {
+        file.find("A1B2c3D4", (err) => {
           assert.ifError(err);
           expect(file.close()).to.not.throw;
           done();
@@ -196,7 +207,7 @@ describe("Key Sequenced Dataset", function() {
 
   it("reads all records until the end", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
     readUntilEnd(file, done);
   });
 
@@ -211,24 +222,24 @@ describe("Key Sequenced Dataset", function() {
   it("return error for non-existent dataset", function(done) {
     expect(() => {
       vsam.openSync("A..B",
-                    JSON.parse(fs.readFileSync('test/test.json')))
+                    JSON.parse(fs.readFileSync('test/test2.json')))
     }).to.throw(/Invalid dataset name/);
     done();
   });
 
   it("update existing record and delete it", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
-    file.find("00125", (record, err) => {
+                             JSON.parse(fs.readFileSync('test/test2.json')))
+    file.find("e5f6789afabc", (record, err) => {
       assert.ifError(err);
       record.name = "KEVIN";
-      record.gender = "MALE";
+      record.amount = "678123";
       file.update(record, (err) => {
         assert.ifError(err);
-        file.find("00125", (record, err) => {
+        file.find("e5f6789afabc", (record, err) => {
           assert.ifError(err);
-          assert.equal(record.name, "KEVIN", "name has been updated");
-          assert.equal(record.gender, "MALE", "gender has been updated");
+          assert.equal(record.name, "KEVIN", "name was not updated");
+          assert.equal(record.amount, "678123", "amount was not updated");
           file.delete( (err) => {
             assert.ifError(err);
             expect(file.close()).to.not.throw;
@@ -241,7 +252,7 @@ describe("Key Sequenced Dataset", function() {
 
   it("deallocate a dataset", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')))
     expect(file.close()).to.not.throw;
     file.dealloc((err) => {
       assert.ifError(err);

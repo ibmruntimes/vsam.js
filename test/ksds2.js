@@ -134,32 +134,29 @@ describe("Key Sequenced Dataset #2", function() {
       assert.equal(record.key, "a1b2c3d4", "1. record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
       assert.equal(record.amount, "1234", "created record has correct amount");
-      expect(file.close()).to.not.throw;
-      done();
-    });
-    file.findlast((record, err) => {
-      assert.ifError(err);
-      assert.equal(record.key, "e5f6789afabcd", "2. record has been created");
-      assert.equal(record.name, "JIM", "created record has correct name");
-      assert.equal(record.amount, "9876543210", "created record has correct amount");
-      expect(file.close()).to.not.throw;
-      done();
-    });
-    file.findfirst((record, err) => {
-      assert.ifError(err);
-      assert.equal(record.key, "a1b2c3d4", "3. record has been created");
-      assert.equal(record.name, "JOHN", "created record has correct name");
-      assert.equal(record.amount, "1234", "created record has correct amount");
-      expect(file.close()).to.not.throw;
-      done();
-    });
-    file.findge("43b2c3d0", (record, err) => {
-      assert.ifError(err);
-      assert.equal(record.key, "a1b2c3d4", "4. record has been created");
-      assert.equal(record.name, "JOHN", "created record has correct name");
-      assert.equal(record.amount, "1234", "created record has correct amount");
-      expect(file.close()).to.not.throw;
-      done();
+
+      file.findlast((record, err) => {
+        assert.ifError(err);
+        assert.equal(record.key, "e5f6789afabcd", "2. record has been created");
+        assert.equal(record.name, "JIM", "created record has correct name");
+        assert.equal(record.amount, "987654321", "created record has correct amount");
+
+        file.findfirst((record, err) => {
+          assert.ifError(err);
+          assert.equal(record.key, "a1b2c3d4", "3. record has been created");
+          assert.equal(record.name, "JOHN", "created record has correct name");
+          assert.equal(record.amount, "1234", "created record has correct amount");
+        
+          file.findge("43b2c3d0", (record, err) => {
+            assert.ifError(err);
+            assert.equal(record.key, "a1b2c3d4", "4. record has been created");
+            assert.equal(record.name, "JOHN", "created record has correct name");
+            assert.equal(record.amount, "1234", "created record has correct amount");
+            expect(file.close()).to.not.throw;
+            done();
+          });
+        });
+      });
     });
   });
 

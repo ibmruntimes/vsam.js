@@ -12,6 +12,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "bindings": "1.2.x",
+    "node-addon-api": "^1.7.1",
     "node-gyp": "^3.6.0"
   },
   "devDependencies": {

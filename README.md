@@ -9,7 +9,7 @@ This is a [Node.js](https://nodejs.org/en/) module available through the
 -->
 
 Before installing, [download and install Node.js](https://developer.ibm.com/node/sdk/ztp/).
-Node.js 6.11.4 or higher is required.
+Node.js 8.16.2 or higher is required.
 
 ## Simple to use
 

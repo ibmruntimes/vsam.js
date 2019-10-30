@@ -26,7 +26,8 @@
       "msvs_settings": {
         "VCCLCompilerTool": { "ExceptionHandling": 1 },
       },
-      "sources": [ "vsam.cpp", "VsamFile.cpp" ]
+      "sources": [ "vsam.cpp", "VsamFile.cpp" ],
+      "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ],
     }
   ]
 }

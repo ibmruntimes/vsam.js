@@ -4,22 +4,21 @@
  * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
 */
 
-#ifndef VSAM_H
-#define VSAM_H
-
-#include <node.h>
+#pragma once
+#include <napi.h>
+#include <uv.h>
 #include <node_object_wrap.h>
 #include <uv.h>
 #include <string>
 
-class VsamFile : public node::ObjectWrap {
+class VsamFile : public Napi::ObjectWrap<VsamFile> {
  public:
-  static void Init(v8::Isolate* isolate);
-  static void OpenSync(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void AllocSync(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Exist(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static v8::Persistent<v8::Function> OpenSyncConstructor;
-  static v8::Persistent<v8::Function> AllocSyncConstructor;
+  static void Init(Napi::Env env, Napi::Object exports);
+  VsamFile(const Napi::CallbackInfo& info);
+
+  static Napi::Value OpenSync(const Napi::CallbackInfo& info);
+  static Napi::Value AllocSync(const Napi::CallbackInfo& info);
+  static Napi::Boolean Exist(const Napi::CallbackInfo& info);
   ~VsamFile();
 
  private:
@@ -32,27 +31,24 @@ class VsamFile : public node::ObjectWrap {
     std::vector<char> name;
     int maxLength;
     DataType type;
-    LayoutItem(v8::String::Utf8Value& n, int m, DataType t) :
+    LayoutItem(std::string& n, int m, DataType t) :
       name(n.length()), maxLength(m), type(t) {
-      memcpy(&name[0], *n, n.length());
+      memcpy(&name[0], n.data(), n.length());
     }
   };
 
-  explicit VsamFile(std::string&, std::vector<LayoutItem>&,
-                    v8::Isolate* isolate, bool alloc, int key_i);
-
   /* Entry point from Javascript */
-  static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Read(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Find(const v8::FunctionCallbackInfo<v8::Value>& args, int equality);
-  static void FindEq(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void FindGe(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void FindFirst(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void FindLast(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Update(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Write(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Delete(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void Dealloc(const v8::FunctionCallbackInfo<v8::Value>& args);
+  void Close(const Napi::CallbackInfo& info);
+  void Read(const Napi::CallbackInfo& info);
+  void Find(const Napi::CallbackInfo& info, int equality);
+  void FindEq(const Napi::CallbackInfo& info);
+  void FindGe(const Napi::CallbackInfo& info);
+  void FindFirst(const Napi::CallbackInfo& info);
+  void FindLast(const Napi::CallbackInfo& info);
+  void Update(const Napi::CallbackInfo& info);
+  void Write(const Napi::CallbackInfo& info);
+  void Delete(const Napi::CallbackInfo& info);
+  void Dealloc(const Napi::CallbackInfo& info);
 
   /* Work functions */
   static void Open(uv_work_t* req);
@@ -65,7 +61,6 @@ class VsamFile : public node::ObjectWrap {
   static void Delete(uv_work_t* req);
 
   /* Work callback functions */
-  v8::Persistent<v8::Function, v8::CopyablePersistentTraits<v8::Function>> cb_;
   static void OpenCallback(uv_work_t* req, int statusj);
   static void AllocCallback(uv_work_t* req, int statusj);
   static void DeallocCallback(uv_work_t* req, int statusj);
@@ -75,11 +70,12 @@ class VsamFile : public node::ObjectWrap {
   static void DeleteCallback(uv_work_t* req, int status);
 
   /* Private methods */
-  static void SetPrototypeMethods(v8::Local<v8::FunctionTemplate>& tpl);
-  static void Construct(const v8::FunctionCallbackInfo<v8::Value>& args, bool alloc);
+  static Napi::Value Construct(const Napi::CallbackInfo& info, bool alloc);
 
   /* Data */
-  v8::Isolate* isolate_;
+  static Napi::FunctionReference constructor_;
+  Napi::Env env_;
+  Napi::FunctionReference cb_;
   std::string path_;
   std::string key_;
   char* keybuf_;
@@ -93,5 +89,3 @@ class VsamFile : public node::ObjectWrap {
   int equality_;
   std::string errmsg_;
 };
-
-#endif

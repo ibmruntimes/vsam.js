@@ -4,22 +4,19 @@
  * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
 */
 
-#include <node.h>
+#include <napi.h>
 #include "VsamFile.h"
 
-using v8::FunctionCallbackInfo;
-using v8::Isolate;
-using v8::Local;
-using v8::Object;
-using v8::String;
-using v8::Value;
+Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
+  VsamFile::Init(env,exports);
 
-void InitAll(Local<Object> exports, Local<Object> module) {
-  VsamFile::Init(exports->GetIsolate());
-
-  NODE_SET_METHOD(exports, "openSync", VsamFile::OpenSync);
-  NODE_SET_METHOD(exports, "allocSync", VsamFile::AllocSync);
-  NODE_SET_METHOD(exports, "exist", VsamFile::Exist);
+  exports.Set(Napi::String::New(env, "openSync"),
+              Napi::Function::New(env, VsamFile::OpenSync));
+  exports.Set(Napi::String::New(env, "allocSync"),
+              Napi::Function::New(env, VsamFile::AllocSync));
+  exports.Set(Napi::String::New(env, "exist"),
+              Napi::Function::New(env, VsamFile::Exist));
+  return exports;
 }
 
-NODE_MODULE(vsam, InitAll)
+NODE_API_MODULE(vsam, InitAll)

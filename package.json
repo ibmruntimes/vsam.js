@@ -1,6 +1,6 @@
 {
   "name": "vsam.js",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Interact with VSAM files on z/OS",
   "main": "index.js",
   "repository": "ibmruntimes/vsam.js",
@@ -12,6 +12,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "bindings": "1.2.x",
+    "node-addon-api": "^1.7.1",
     "node-gyp": "^3.6.0"
   },
   "devDependencies": {

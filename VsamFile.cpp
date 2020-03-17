@@ -536,14 +536,10 @@ void VsamFile::Write(const Napi::CallbackInfo& info) {
   char* buf = (char*)buf_;
   for(auto i = layout_.begin(); i != layout_.end(); ++i) {
     Napi::Value field = record.Get(&(i->name[0]));
-    if (!field.IsString()) {
-      Napi::TypeError::New(env_, "Currently only string (including hexadecimal string) is allowed as a field value..").ThrowAsJavaScriptException();
-      return;
-    }
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
-      std::string key = static_cast<std::string>(field.As<Napi::String>());
+      std::string key = static_cast<std::string>(Napi::String (env_, field.ToString()));
       if (i->type == LayoutItem::STRING) {
-        memcpy(buf, key.c_str(), key.length() + 1);
+        memcpy(buf, key.c_str(), key.length());
       } else {
         hexstrToBuffer(buf, i->maxLength, key.c_str());
       }

@@ -429,7 +429,7 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
   Napi::HandleScope scope(env);
   Napi::Object obj = constructor_.New({
     Napi::String::New(env, path),
-    Napi::Buffer<std::vector<LayoutItem>>::New(env, &layout, layout.size()),
+    Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
     Napi::Boolean::New(env, alloc),
     Napi::Number::New(env, key_i)});
   VsamFile* p = Napi::ObjectWrap<VsamFile>::Unwrap(obj);

@@ -32,8 +32,8 @@ class VsamFile : public Napi::ObjectWrap<VsamFile> {
     int maxLength;
     DataType type;
     LayoutItem(std::string& n, int m, DataType t) :
-      name(n.length()), maxLength(m), type(t) {
-      memcpy(&name[0], n.data(), n.length());
+      name(n.length()+1), maxLength(m), type(t) {
+      strcpy(&name[0], n.c_str());
     }
   };
 

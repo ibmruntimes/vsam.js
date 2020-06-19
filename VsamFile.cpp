@@ -85,14 +85,14 @@ void VsamFile::ReadCallback(uv_work_t* req, int status) {
     Napi::Object record = Napi::Object::New(obj->env_);
     for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
       if (i->type == LayoutItem::STRING) { 
-        std::string str(buf,i->maxLength);
-        record.Set(&(i->name[0]), str.c_str());
+        std::string str(buf,i->maxLength+1);
+        str[i->maxLength] = 0;
+        record.Set(&(i->name[0]), Napi::String::New(obj->env_, str.c_str()));
       }
       else if (i->type == LayoutItem::HEXADECIMAL) { 
         char hexstr[(i->maxLength*2)+1];
         bufferToHexstr(hexstr, buf, i->maxLength);
-        std::string str(hexstr); 
-        record.Set(&(i->name[0]), str.c_str());
+        record.Set(&(i->name[0]), Napi::String::New(obj->env_, hexstr));
       }
       buf += i->maxLength;
     }
@@ -120,7 +120,7 @@ void VsamFile::Find(uv_work_t* req) {
   } else {
     LayoutItem& key_layout = obj->layout_[obj->key_i_];
     if (key_layout.type == LayoutItem::HEXADECIMAL) {
-      char buf[key_layout.maxLength];
+      char buf[key_layout.maxLength+1];
       hexstrToBuffer(buf, sizeof(buf), obj->key_.c_str());
       rc = flocate(obj->stream_, buf, obj->keylen_, obj->equality_);
       goto chk;
@@ -272,6 +272,7 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
 
   std::ostringstream dataset;
   dataset << "//'" << path_.c_str() << "'";
+
   stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
   int err = __errno2();
 
@@ -318,7 +319,6 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
       lastrc_ = -1;
       return;
     }
-
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
     if (stream_ == NULL) {
       errmsg_ = "Failed to open new dataset";
@@ -339,6 +339,7 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     return;
   }
 }
+
 
 VsamFile::~VsamFile() {
   if (stream_ != NULL)
@@ -432,6 +433,7 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
     Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
     Napi::Boolean::New(env, alloc),
     Napi::Number::New(env, key_i)});
+
   VsamFile* p = Napi::ObjectWrap<VsamFile>::Unwrap(obj);
   if (p->lastrc_) {
     Napi::Error::New(env, p->errmsg_.c_str()).ThrowAsJavaScriptException();
@@ -450,8 +452,7 @@ Napi::Value VsamFile::AllocSync(const Napi::CallbackInfo& info) {
 
 
 Napi::Value VsamFile::OpenSync(const Napi::CallbackInfo& info) {
-  Napi::Value obj = Construct(info, false);
-return obj;
+  return Construct(info, false);
 }
 
 
@@ -660,7 +661,6 @@ void VsamFile::Find(const Napi::CallbackInfo& info, int equality) {
       Napi::Error::New(env_,err).ThrowAsJavaScriptException();
       return;
     }
-
   } else {
     if (info.Length() < 1) {
       Napi::Error::New(env_, "Wrong number of arguments; one argument expected.").ThrowAsJavaScriptException();
@@ -728,6 +728,7 @@ void VsamFile::Dealloc(const Napi::CallbackInfo& info) {
   uv_queue_work(uv_default_loop(), request, Dealloc, DeallocCallback);
 }
 
+
 static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
    const int hexstrlen = strlen(hexstr);
    memset(hexbuf,0,buflen);
@@ -748,6 +749,7 @@ static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr)
    return hexbuf;
 }
 
+
 static const char* bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen) {
    int i, j;
    for (i=0,j=0; i<hexbuflen; i++,j+=2) {
@@ -757,9 +759,10 @@ static const char* bufferToHexstr (char* hexstr, const char* hexbuf, const int h
        sprintf(hexstr+j,"%02x", hexbuf[i]);
      }
    }
-   //remove trailing '0's, unless value is '00'
-   while(--j>2 && hexstr[j]=='0')
-     ;
-   hexstr[++j] = 0;
+   hexstr[j] = 0;
+
+   //remove trailing '00's
+   for (--j; j>2 && hexstr[j]=='0' && hexstr[j-1]=='0'; j-=2)
+     hexstr[j-1] = 0;
    return hexstr;
 }

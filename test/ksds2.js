@@ -100,7 +100,8 @@ describe("Key Sequenced Dataset #2", function() {
 //    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]),
 //    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]).toString('hex'),
     record = {
-      key: "e5f6789afabcd",
+      // trailing 00 will be truncated when read
+      key: "e5f6789afabcd000",
       name: "JIM",
       amount: "9876543210"
     };
@@ -137,9 +138,9 @@ describe("Key Sequenced Dataset #2", function() {
 
       file.findlast((record, err) => {
         assert.ifError(err);
-        assert.equal(record.key, "e5f6789afabcd", "2. record has been created");
+        assert.equal(record.key, "e5f6789afabcd0", "2. record has been created (trailing 0 retained)");
         assert.equal(record.name, "JIM", "created record has correct name");
-        assert.equal(record.amount, "987654321", "created record has correct amount");
+        assert.equal(record.amount, "9876543210", "created record has correct amount");
 
         file.findfirst((record, err) => {
           assert.ifError(err);
@@ -164,14 +165,15 @@ describe("Key Sequenced Dataset #2", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')))
     file.read((record, err) => {
-      record.key = "e5f6789afabc"; // same as existing key (for JIM) but without the trailing d
+      // trailing 00 will be truncated, key up to 'c' matches JIM's, whose key is then followed by 'd'
+      record.key = "e5f6789afabc00";
       record.name = "JANE";
       record.amount = "4187832145";
       file.write(record, (err) => {
         assert.ifError(err);
         file.find("e5f6789afabc", (record, err) => {
           assert.ifError(err);
-          assert.equal(record.key, "e5f6789afabc", "5. record has been created");
+          assert.equal(record.key, "e5f6789afabc", "5. record has been created (00 truncated)");
           assert.equal(record.name, "JANE", "5. created record has correct name");
           assert.equal(record.amount, "4187832145", "5. created record has correct amount");
           expect(file.close()).to.not.throw;

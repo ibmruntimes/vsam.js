@@ -316,6 +316,7 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     }
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
     if (stream_ == NULL) {
+      perror("fopen");
       errmsg_ = "Failed to open new dataset";
       lastrc_ = -1;
       return;

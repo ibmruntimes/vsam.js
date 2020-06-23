@@ -240,6 +240,21 @@ void VsamFile::DeallocCallback(uv_work_t* req, int status) {
 }
 
 
+static std::string& createErrorMsg (std::string& errmsg, int err, int err2, const char* title) {
+  // err is errno, err2 is __errno2()
+  errmsg = title;
+  std::string e(strerror(err));
+  if (!e.empty())
+    errmsg += ": " + e;
+  if (err2) {
+    char ebuf[32];
+    sprintf(ebuf, " (errno2=0x%08x)", err2);
+    errmsg += ebuf;
+  }
+  return errmsg;
+}
+
+
 VsamFile::VsamFile(const Napi::CallbackInfo& info)
 : Napi::ObjectWrap<VsamFile>(info),
     env_(info.Env()),
@@ -268,18 +283,18 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
   dataset << "//'" << path_.c_str() << "'";
 
   stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
-  int err = __errno2();
+  int err = errno;
+  int err2 = __errno2();
 
   if (!alloc) {
     if (stream_ == NULL) {
-      errmsg_ = err == 0xC00B0641 ? "Dataset does not exist" : "Invalid dataset name";
+      createErrorMsg(errmsg_, err, err2, "Failed to open dataset");
       lastrc_ = -1;
       return;
     }
     stream_ = freopen(dataset.str().c_str(), omode_.c_str(), stream_);
     if (stream_ == NULL) {
-      perror("freopen");
-      errmsg_ = "Failed to open dataset";
+      createErrorMsg(errmsg_, errno, __errno2(), "Failed to open dataset");
       lastrc_ = -1;
       return;
     }
@@ -291,8 +306,8 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
       lastrc_ = -1;
       return;
     }
-    if (err != 0xC00B0641) {
-      errmsg_ = "Invalid dataset format";
+    if (err2 != 0xC00B0641) {
+      createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
       lastrc_ = -1;
       return;
     }
@@ -316,8 +331,7 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     }
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
     if (stream_ == NULL) {
-      perror("fopen");
-      errmsg_ = "Failed to open new dataset";
+      createErrorMsg(errmsg_, errno, __errno2(), "Failed to open new dataset");
       lastrc_ = -1;
       return;
     }

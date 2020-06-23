@@ -104,11 +104,14 @@ var vsamObj = vsam.openSync("VSAM.DATASET.NAME", JSON.parse(fs.readFileSync('sch
 
 * The first argument is the name of an existing VSAM dataset.
 * The second argument is the JSON object derived from the schema file.
-* The value returned is a vsam dataset handle. The rest of this readme describes the operations that can be performed on this object.
+* The optional third argument, if specified, is the fopen() mode; default is 'ab+,type=record' if none is specified.
+* The value returned is a VSAM dataset handle. The rest of this readme describes the operations that can be performed on this object.
 * Usage notes:
+  * If the third argument is specified, it is passed as-is to C/C++ library function fopen().
+  * To open a non-empty VSAM dataset in read-only mode, specify 'rb,type=record' as the third argument.
   * On error, this function with throw an exception.
 
-## Check if vsam dataset exists
+## Check if VSAM dataset exists
 
 ```js
 const vsam = require('vsam');
@@ -121,7 +124,7 @@ if (vsam.exist("VSAM.DATASET.NAME")) {
 * The first argument is the name of an existing VSAM dataset.
 * Boolean value is returned indicating whether dataset exists or not.
 
-## Closing a vsam dataset
+## Closing a VSAM dataset
 
 ```js
 vsamObj.close((err) => { /* Handle error. */ });
@@ -129,7 +132,7 @@ vsamObj.close((err) => { /* Handle error. */ });
 
 * The first argument is a callback function containing an error object if the close operation failed.
 
-## Reading a record from a vsam dataset
+## Reading a record from a VSAM dataset
 
 ```js
 vsamObj.read((record, err) => { 
@@ -153,7 +156,7 @@ The following data types are currently supported:
 
 See [test/test2.json](https://github.com/ibmruntimes/vsam.js/blob/master/test/test2.json) and [test/ksds2.js](https://github.com/ibmruntimes/vsam.js/blob/master/test/ksds2.js) for an example covering both types.
 
-## Writing a record to a vsam dataset
+## Writing a record to a VSAM dataset
 
 ```js
 vsamObj.write(record, (err) => { 
@@ -167,7 +170,7 @@ vsamObj.write(record, (err) => {
   * The write operation advances the cursor by one record length after the newly written record.
   * The write operation will overwrite any existing record with the same key.
 
-## Finding a record in a vsam dataset
+## Finding a record in a VSAM dataset
 
 ```js
 vsamObj.find(recordKey, (record, err) => { 
@@ -195,7 +198,7 @@ vsamObj.findfirst(recordKey, (record, err) => {
   * The find operation will place the cursor at the queried record (if found).
   * The record object in the callback will by null if the query failed to retrieve a record.
   
-## Updating a record in a vsam dataset
+## Updating a record in a VSAM dataset
 
 ```js
 vsamObj.update(record, (err) => { 
@@ -209,7 +212,7 @@ vsamObj.update(record, (err) => {
 * Usage notes:
   * The update operation will write over the record currently under the cursor.
   
-## Deleting a record from a vsam dataset
+## Deleting a record from a VSAM dataset
 
 ```js
 vsamObj.delete((err) => { /* Handle error. */ });
@@ -221,7 +224,7 @@ vsamObj.delete((err) => { /* Handle error. */ });
   * This will usually be placed inside the callback of a find operation. The find operation places
     the cursor on the desired record and the subsequent delete operation deletes it.
 
-## Deallocating a vsam dataset
+## Deallocating a VSAM dataset
 
 ```js
 vsamObj.dealloc((err) => { /* Handle error. */ });

@@ -240,26 +240,62 @@ void VsamFile::DeallocCallback(uv_work_t* req, int status) {
 }
 
 
+static std::string& createErrorMsg (std::string& errmsg, int err, int err2, const char* title) {
+  // err is errno, err2 is __errno2()
+  errmsg = title;
+  std::string e(strerror(err));
+  if (!e.empty())
+    errmsg += ": " + e;
+  if (err2) {
+    char ebuf[32];
+    sprintf(ebuf, " (errno2=0x%08x)", err2);
+    errmsg += ebuf;
+  }
+  return errmsg;
+}
+
+
+static bool isDatasetExist (const char* path, int* perr=0, int* perr2=0 ) {
+  FILE *stream = fopen(path, "rb,type=record");
+  int err2 = __errno2();
+  if (perr) *perr = errno;
+  if (perr2) *perr2 = err2;
+  if (stream != NULL) {
+    fclose(stream);
+    return true;
+  }
+  if (err2 == 0xC00B0641) {
+    // 0xC00B0641 is file not found
+    return false;
+  }
+  if (err2 == 0xC00A0022) {
+    // 0xC00A0022 could be if opening an empty dataset as read-only, double-check:
+    stream = fopen(path, "rb+,type=record");
+    if (perr) *perr = errno;
+    if (perr2) *perr2 = __errno2();
+    if (stream == NULL)
+      return false;
+    fclose(stream);
+    return true;
+  }
+  return false;
+}
+
+
 VsamFile::VsamFile(const Napi::CallbackInfo& info)
 : Napi::ObjectWrap<VsamFile>(info),
     env_(info.Env()),
     stream_(NULL),
     keylen_(-1),
-    lastrc_(0),
+    lastrc_(-1),
     buf_(NULL),
     keybuf_(NULL),
     keybuf_len_(0) {
   Napi::HandleScope scope(env_);
+  int err, err2;
 
-  if (info.Length() != 4) {
+  if (info.Length() != 5) {
     Napi::Error::New(env_, "Wrong number of arguments to VsamFile::VsamFile")
-        .ThrowAsJavaScriptException();
-    return;
-  }
-
-  if (!info[0].IsString() || !info[1].IsBuffer() || !info[2].IsBoolean() || !info[
-3].IsNumber()) {
-    Napi::Error::New(env_, "Wrong arguments to VsamFile::VsamFile")
         .ThrowAsJavaScriptException();
     return;
   }
@@ -269,36 +305,28 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
   layout_ = *(static_cast<std::vector<LayoutItem>*>(b.Data()));
   bool alloc(static_cast<bool>(info[2].As<Napi::Boolean>()));
   key_i_ = static_cast<int>(info[3].As<Napi::Number>().Int32Value());
+  omode_ = static_cast<std::string>(info[4].As<Napi::String>());
 
   std::ostringstream dataset;
   dataset << "//'" << path_.c_str() << "'";
 
-  stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
-  int err = __errno2();
-
   if (!alloc) {
+    stream_ = fopen(dataset.str().c_str(), omode_.c_str());
+    err = errno;
+    err2 = __errno2();
+
     if (stream_ == NULL) {
-      errmsg_ = err == 0xC00B0641 ? "Dataset does not exist" : "Invalid dataset name";
-      lastrc_ = -1;
-      return;
-    }
-    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
-    if (stream_ == NULL) {
-      errmsg_ = "Failed to open dataset";
-      lastrc_ = -1;
+      createErrorMsg(errmsg_, err, err2, "Failed to open dataset");
       return;
     }
   } else {
-    if (stream_ != NULL) {
+    if (isDatasetExist(dataset.str().c_str(),&err,&err2)) {
       errmsg_ = "Dataset already exists";
-      fclose(stream_);
-      stream_ = NULL;
-      lastrc_ = -1;
       return;
     }
-    if (err != 0xC00B0641) {
-      errmsg_ = "Invalid dataset format";
-      lastrc_ = -1;
+    if (err2 != 0xC00B0641) {
+      // 0xC00B0641 is file not found
+      createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
       return;
     }
 
@@ -316,13 +344,11 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     dyn.__recorg = __KS;
     if (dynalloc(&dyn) != 0) {
       errmsg_ = "Failed to allocate dataset";
-      lastrc_ = -1;
       return;
     }
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
     if (stream_ == NULL) {
-      errmsg_ = "Failed to open new dataset";
-      lastrc_ = -1;
+      createErrorMsg(errmsg_, errno, __errno2(), "Failed to open new dataset");
       return;
     }
   }
@@ -335,9 +361,9 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     errmsg_ = "Incorrect key length";
     fclose(stream_);
     stream_ = NULL;
-    lastrc_ = -1;
     return;
   }
+  lastrc_ = 0;
 }
 
 
@@ -375,19 +401,10 @@ void VsamFile::Init(Napi::Env env, Napi::Object exports) {
 Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
   Napi::Env env = info.Env();
 
-  if (info.Length() != 2) {
-    Napi::Error::New(env, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  if (!info[0].IsString()) {
-    Napi::TypeError::New(env, "First argument must be a string.").ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
   std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
-
   Napi::Object schema = info[1].ToObject();
+  std::string mode = info.Length() == 2 ? "ab+,type=record"
+                     : (static_cast<std::string>(info[2].As<Napi::String>()));
   Napi::Array properties = schema.GetPropertyNames();
   std::vector<LayoutItem> layout;
   int key_i = 0; // for its data type - default to first field if no "key" found
@@ -432,7 +449,8 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
     Napi::String::New(env, path),
     Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
     Napi::Boolean::New(env, alloc),
-    Napi::Number::New(env, key_i)});
+    Napi::Number::New(env, key_i),
+    Napi::String::New(env, mode)});
 
   VsamFile* p = Napi::ObjectWrap<VsamFile>::Unwrap(obj);
   if (p->lastrc_) {
@@ -440,18 +458,29 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
     delete p;
     return env.Null();
   }
-
-  //return scope.Escape(napi_value(obj)).ToObject();
   return obj;
 }
 
 
 Napi::Value VsamFile::AllocSync(const Napi::CallbackInfo& info) {
+  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject()) {
+    Napi::Error::New(info.Env(), "Wrong arguments to allocSync(), must be: "\
+                          "VSAM dataset name, schema JSON object").ThrowAsJavaScriptException();
+    return info.Env().Null();
+  }
   return Construct(info, true);
 }
 
 
 Napi::Value VsamFile::OpenSync(const Napi::CallbackInfo& info) {
+  if ((info.Length() < 2 || !info[0].IsString() || !info[1].IsObject())
+  ||  (info.Length() == 3 && !info[2].IsString())
+  ||  (info.Length() > 3)) {
+    Napi::Error::New(info.Env(), "Wrong arguments to openSync(), must be: "\
+                          "VSAM dataset name, schema JSON object, optional fopen() mode")
+                          .ThrowAsJavaScriptException();
+    return info.Env().Null();
+  }
   return Construct(info, false);
 }
 
@@ -472,14 +501,7 @@ Napi::Boolean VsamFile::Exist(const Napi::CallbackInfo& info) {
   std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
   std::ostringstream dataset;
   dataset << "//'" << path.c_str() << "'";
-  FILE *stream = fopen(dataset.str().c_str(), "rb+,type=record");
-
-  if (stream == NULL) {
-    return Napi::Boolean::New(env, false);
-  }
-
-  fclose(stream);
-  return Napi::Boolean::New(env, true);
+  return Napi::Boolean::New(env, isDatasetExist(dataset.str().c_str()));
 }
 
 

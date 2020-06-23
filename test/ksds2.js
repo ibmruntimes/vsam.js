@@ -58,7 +58,7 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("create an empty dataset", function(done) {
     var file = vsam.allocSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     expect(file).not.be.null;
     expect(file.close()).to.not.throw;
     done();
@@ -71,7 +71,7 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("open and close the existing dataset", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     expect(file).to.not.be.null;
     expect(file.close()).to.not.throw;
     done();
@@ -79,7 +79,7 @@ describe("Key Sequenced Dataset #2", function() {
 
  it("write new record, provide key as Buffer.toString('hex')", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
     record = {
       key: keybuf.toString('hex'),
@@ -95,7 +95,7 @@ describe("Key Sequenced Dataset #2", function() {
 
  it("write another new record, provide key as Buffer", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
 // not supported yet:
 //    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]),
 //    key: Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd]).toString('hex'),
@@ -114,7 +114,7 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("read a record and verify properties", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     file.read( (record, err) => {
       assert.ifError(err);
       expect(record).to.not.be.null;
@@ -128,7 +128,7 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("find existing record using Buffer and hexadecimal string as key, and verify data", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
     file.find(keybuf, keybuf.length, (record, err) => {
       assert.ifError(err);
@@ -163,7 +163,7 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("write new record after read", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     file.read((record, err) => {
       // trailing 00 will be truncated, key up to 'c' matches JIM's, whose key is then followed by 'd'
       record.key = "e5f6789afabc00";
@@ -185,7 +185,7 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("delete existing record", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
 //  const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
     const keybuf = Buffer.from([0xA1, 0xB2, 0xc3, 0xD4]);
     file.find(keybuf, keybuf.length, (record, err) => {
@@ -206,14 +206,14 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("reads all records until the end", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     readUntilEnd(file, done);
   });
 
   it("open a vsam file with incorrect key length", function(done) {
     expect(() => {
       vsam.openSync(testSet,
-                    JSON.parse(fs.readFileSync('test/test-error.json')))
+                    JSON.parse(fs.readFileSync('test/test-error.json')));
     }).to.throw(/Incorrect key length/);
     done();
   });
@@ -221,14 +221,21 @@ describe("Key Sequenced Dataset #2", function() {
   it("return error for non-existent dataset", function(done) {
     expect(() => {
       vsam.openSync("A..B",
-                    JSON.parse(fs.readFileSync('test/test2.json')))
+                    JSON.parse(fs.readFileSync('test/test2.json')));
     }).to.throw(/Invalid dataset name/);
     done();
   });
 
+  it("open in read-only mode, reads all records until the end", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')),
+                             "rb,type=record");
+    readUntilEnd(file, done);
+  });
+
   it("update existing record and delete it", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     file.find("e5f6789afabc", (record, err) => {
       assert.ifError(err);
       record.name = "KEVIN";
@@ -248,10 +255,9 @@ describe("Key Sequenced Dataset #2", function() {
       });
     });
   });
-
   it("deallocate a dataset", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test2.json')))
+                             JSON.parse(fs.readFileSync('test/test2.json')));
     expect(file.close()).to.not.throw;
     file.dealloc((err) => {
       assert.ifError(err);

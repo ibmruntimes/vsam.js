@@ -77,6 +77,15 @@ describe("Key Sequenced Dataset #2", function() {
     done();
   });
 
+  it("return error for opening empty dataset in read-only mode", function(done) {
+    expect(() => {
+      vsam.openSync(testSet,
+                    JSON.parse(fs.readFileSync('test/test2.json')),
+                    'rb,type=record');
+    }).to.throw(/Failed to open dataset/);
+    done();
+  });
+
  it("write new record, provide key as Buffer.toString('hex')", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
@@ -220,9 +229,17 @@ describe("Key Sequenced Dataset #2", function() {
 
   it("return error for non-existent dataset", function(done) {
     expect(() => {
+      vsam.openSync("A.B",
+                    JSON.parse(fs.readFileSync('test/test2.json')));
+    }).to.throw(/The specified file name could not be located/);
+    done();
+  });
+
+  it("return error for invalid dataset name", function(done) {
+    expect(() => {
       vsam.openSync("A..B",
                     JSON.parse(fs.readFileSync('test/test2.json')));
-    }).to.throw(/Invalid dataset name/);
+    }).to.throw(/invalid file name/);
     done();
   });
 

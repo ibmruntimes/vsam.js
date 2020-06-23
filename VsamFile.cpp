@@ -255,16 +255,44 @@ static std::string& createErrorMsg (std::string& errmsg, int err, int err2, cons
 }
 
 
+static bool isDatasetExist (const char* path, int* perr=0, int* perr2=0 ) {
+  FILE *stream = fopen(path, "rb,type=record");
+  int err2 = __errno2();
+  if (perr) *perr = errno;
+  if (perr2) *perr2 = err2;
+  if (stream != NULL) {
+    fclose(stream);
+    return true;
+  }
+  if (err2 == 0xC00B0641) {
+    // 0xC00B0641 is file not found
+    return false;
+  }
+  if (err2 == 0xC00A0022) {
+    // 0xC00A0022 could be if opening an empty dataset as read-only, double-check:
+    stream = fopen(path, "rb+,type=record");
+    if (perr) *perr = errno;
+    if (perr2) *perr2 = __errno2();
+    if (stream == NULL)
+      return false;
+    fclose(stream);
+    return true;
+  }
+  return false;
+}
+
+
 VsamFile::VsamFile(const Napi::CallbackInfo& info)
 : Napi::ObjectWrap<VsamFile>(info),
     env_(info.Env()),
     stream_(NULL),
     keylen_(-1),
-    lastrc_(0),
+    lastrc_(-1),
     buf_(NULL),
     keybuf_(NULL),
     keybuf_len_(0) {
   Napi::HandleScope scope(env_);
+  int err, err2;
 
   if (info.Length() != 5) {
     Napi::Error::New(env_, "Wrong number of arguments to VsamFile::VsamFile")
@@ -282,33 +310,23 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
   std::ostringstream dataset;
   dataset << "//'" << path_.c_str() << "'";
 
-  stream_ = fopen(dataset.str().c_str(), "rb+,type=record");
-  int err = errno;
-  int err2 = __errno2();
-
   if (!alloc) {
+    stream_ = fopen(dataset.str().c_str(), omode_.c_str());
+    err = errno;
+    err2 = __errno2();
+
     if (stream_ == NULL) {
       createErrorMsg(errmsg_, err, err2, "Failed to open dataset");
-      lastrc_ = -1;
-      return;
-    }
-    stream_ = freopen(dataset.str().c_str(), omode_.c_str(), stream_);
-    if (stream_ == NULL) {
-      createErrorMsg(errmsg_, errno, __errno2(), "Failed to open dataset");
-      lastrc_ = -1;
       return;
     }
   } else {
-    if (stream_ != NULL) {
+    if (isDatasetExist(dataset.str().c_str(),&err,&err2)) {
       errmsg_ = "Dataset already exists";
-      fclose(stream_);
-      stream_ = NULL;
-      lastrc_ = -1;
       return;
     }
     if (err2 != 0xC00B0641) {
+      // 0xC00B0641 is file not found
       createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
-      lastrc_ = -1;
       return;
     }
 
@@ -326,13 +344,11 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     dyn.__recorg = __KS;
     if (dynalloc(&dyn) != 0) {
       errmsg_ = "Failed to allocate dataset";
-      lastrc_ = -1;
       return;
     }
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
     if (stream_ == NULL) {
       createErrorMsg(errmsg_, errno, __errno2(), "Failed to open new dataset");
-      lastrc_ = -1;
       return;
     }
   }
@@ -345,9 +361,9 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     errmsg_ = "Incorrect key length";
     fclose(stream_);
     stream_ = NULL;
-    lastrc_ = -1;
     return;
   }
+  lastrc_ = 0;
 }
 
 
@@ -485,14 +501,7 @@ Napi::Boolean VsamFile::Exist(const Napi::CallbackInfo& info) {
   std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
   std::ostringstream dataset;
   dataset << "//'" << path.c_str() << "'";
-  FILE *stream = fopen(dataset.str().c_str(), "rb+,type=record");
-
-  if (stream == NULL) {
-    return Napi::Boolean::New(env, false);
-  }
-
-  fclose(stream);
-  return Napi::Boolean::New(env, true);
+  return Napi::Boolean::New(env, isDatasetExist(dataset.str().c_str()));
 }
 
 

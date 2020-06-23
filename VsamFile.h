@@ -77,6 +77,7 @@ class VsamFile : public Napi::ObjectWrap<VsamFile> {
   Napi::Env env_;
   Napi::FunctionReference cb_;
   std::string path_;
+  std::string omode_;
   std::string key_;
   char* keybuf_;
   int keybuf_len_;

@@ -251,15 +251,8 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     keybuf_len_(0) {
   Napi::HandleScope scope(env_);
 
-  if (info.Length() != 4) {
+  if (info.Length() != 5) {
     Napi::Error::New(env_, "Wrong number of arguments to VsamFile::VsamFile")
-        .ThrowAsJavaScriptException();
-    return;
-  }
-
-  if (!info[0].IsString() || !info[1].IsBuffer() || !info[2].IsBoolean() || !info[
-3].IsNumber()) {
-    Napi::Error::New(env_, "Wrong arguments to VsamFile::VsamFile")
         .ThrowAsJavaScriptException();
     return;
   }
@@ -269,6 +262,7 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
   layout_ = *(static_cast<std::vector<LayoutItem>*>(b.Data()));
   bool alloc(static_cast<bool>(info[2].As<Napi::Boolean>()));
   key_i_ = static_cast<int>(info[3].As<Napi::Number>().Int32Value());
+  omode_ = static_cast<std::string>(info[4].As<Napi::String>());
 
   std::ostringstream dataset;
   dataset << "//'" << path_.c_str() << "'";
@@ -282,8 +276,9 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
       lastrc_ = -1;
       return;
     }
-    stream_ = freopen(dataset.str().c_str(), "ab+,type=record", stream_);
+    stream_ = freopen(dataset.str().c_str(), omode_.c_str(), stream_);
     if (stream_ == NULL) {
+      perror("freopen");
       errmsg_ = "Failed to open dataset";
       lastrc_ = -1;
       return;
@@ -375,19 +370,10 @@ void VsamFile::Init(Napi::Env env, Napi::Object exports) {
 Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
   Napi::Env env = info.Env();
 
-  if (info.Length() != 2) {
-    Napi::Error::New(env, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  if (!info[0].IsString()) {
-    Napi::TypeError::New(env, "First argument must be a string.").ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
   std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
-
   Napi::Object schema = info[1].ToObject();
+  std::string mode = info.Length() == 2 ? "ab+,type=record"
+                     : (static_cast<std::string>(info[2].As<Napi::String>()));
   Napi::Array properties = schema.GetPropertyNames();
   std::vector<LayoutItem> layout;
   int key_i = 0; // for its data type - default to first field if no "key" found
@@ -432,7 +418,8 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
     Napi::String::New(env, path),
     Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
     Napi::Boolean::New(env, alloc),
-    Napi::Number::New(env, key_i)});
+    Napi::Number::New(env, key_i),
+    Napi::String::New(env, mode)});
 
   VsamFile* p = Napi::ObjectWrap<VsamFile>::Unwrap(obj);
   if (p->lastrc_) {
@@ -440,18 +427,29 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
     delete p;
     return env.Null();
   }
-
-  //return scope.Escape(napi_value(obj)).ToObject();
   return obj;
 }
 
 
 Napi::Value VsamFile::AllocSync(const Napi::CallbackInfo& info) {
+  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject()) {
+    Napi::Error::New(info.Env(), "Wrong arguments to allocSync(), must be: "\
+                          "VSAM dataset name, schema JSON object").ThrowAsJavaScriptException();
+    return info.Env().Null();
+  }
   return Construct(info, true);
 }
 
 
 Napi::Value VsamFile::OpenSync(const Napi::CallbackInfo& info) {
+  if ((info.Length() < 2 || !info[0].IsString() || !info[1].IsObject())
+  ||  (info.Length() == 3 && !info[2].IsString())
+  ||  (info.Length() > 3)) {
+    Napi::Error::New(info.Env(), "Wrong arguments to openSync(), must be: "\
+                          "VSAM dataset name, schema JSON object, optional fopen() mode")
+                          .ThrowAsJavaScriptException();
+    return info.Env().Null();
+  }
   return Construct(info, false);
 }
 

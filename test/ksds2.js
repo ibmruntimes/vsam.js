@@ -227,11 +227,20 @@ describe("Key Sequenced Dataset #2", function() {
     done();
   });
 
-  it("return error for non-existent dataset", function(done) {
+  it("return error for invalid dataset access", function(done) {
     expect(() => {
-      vsam.openSync("A.B",
+      vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access
                     JSON.parse(fs.readFileSync('test/test2.json')));
-    }).to.throw(/The specified file name could not be located/);
+    }).to.throw(/An error occurred when attempting to define a file to the system/);
+    done();
+  });
+
+  it("return error for invalid dataset name", function(done) {
+    expect(() => {
+      const testSet = `${uid}.A.B._`;
+      vsam.openSync(testSet,
+                    JSON.parse(fs.readFileSync('test/test2.json')));
+    }).to.throw(/An invalid file name was specified/);
     done();
   });
 

@@ -26,7 +26,6 @@ static void print_amrc() {
 
 void VsamFile::DeleteCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
   //TODO: what if the write failed (buf != NULL)
 
   if (status == UV_ECANCELED)
@@ -43,7 +42,6 @@ void VsamFile::DeleteCallback(uv_work_t* req, int status) {
 
 void VsamFile::WriteCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
 
   if (status == UV_ECANCELED)
     return;
@@ -60,7 +58,6 @@ void VsamFile::WriteCallback(uv_work_t* req, int status) {
 
 void VsamFile::UpdateCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
   //TODO: what if the update failed (buf != NULL)
 
   if (status == UV_ECANCELED)
@@ -73,12 +70,11 @@ void VsamFile::UpdateCallback(uv_work_t* req, int status) {
 
 void VsamFile::ReadCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
 
   if (status == UV_ECANCELED)
     return;
 
-  char* buf = (char*)(obj->buf_);
+  char* buf = obj->buf_;
 
   if (buf != NULL) {
     Napi::HandleScope scope(obj->env_);
@@ -117,16 +113,36 @@ void VsamFile::Find(uv_work_t* req) {
     }
     buf = obj->keybuf_;
     buflen = obj->keybuf_len_;
+#ifdef DEBUG
+    fprintf(stderr,"Line %d: obj->keybuf_len_=%d, buf=",__LINE__, obj->keybuf_len_);
+    for (int i=0; i<obj->keybuf_len_; i++)
+      fprintf(stderr,"%x ",buf[i]);
+    fprintf(stderr,"\n");
+#endif
   } else {
     LayoutItem& key_layout = obj->layout_[obj->key_i_];
     if (key_layout.type == LayoutItem::HEXADECIMAL) {
-      char buf[key_layout.maxLength+1];
+      char buf[key_layout.maxLength];
+      assert(key_layout.maxLength == obj->keylen_);
       hexstrToBuffer(buf, sizeof(buf), obj->key_.c_str());
+#ifdef DEBUG
+      fprintf(stderr,"Line %d: user string=<%s>, key_layout.maxLength=%d, obj->keylen_=%d, buf=",
+                     __LINE__, obj->key_.c_str(), key_layout.maxLength, obj->keylen_);
+      for (int i=0; i<obj->keylen_; i++)
+        fprintf(stderr,"%x ",buf[i]);
+      fprintf(stderr,"\n");
+#endif
       rc = flocate(obj->stream_, buf, obj->keylen_, obj->equality_);
       goto chk;
     } else {
       buf = obj->key_.c_str();
       buflen = obj->keylen_;
+#ifdef DEBUG
+      fprintf(stderr,"Line %d: obj->keylen_=%d, buf=",__LINE__, obj->keylen_);
+      for (int i=0; i<obj->keylen_; i++)
+        fprintf(stderr,"%x ",buf[i]);
+      fprintf(stderr,"\n");
+#endif
     }
   }
   rc = flocate(obj->stream_, buf, buflen, obj->equality_);
@@ -140,9 +156,15 @@ chk:
       if (obj->buf_) {
         free(obj->buf_);
       }
-      obj->buf_ = malloc(obj->reclen_);
-      //TODO: if malloc fails
+      obj->buf_ = (char*)malloc(obj->reclen_);
+      assert(obj->buf_ != NULL);
       memcpy(obj->buf_, buf, obj->reclen_);
+#ifdef DEBUG
+      fprintf(stderr,"Line %d: obj->reclen_=%d, fread=",__LINE__, obj->reclen_);
+      for (int i=0; i<obj->reclen_; i++)
+        fprintf(stderr,"%x ",obj->buf_[i]);
+      fprintf(stderr,"\n");
+#endif
       return;
     }
   }
@@ -162,8 +184,8 @@ void VsamFile::Read(uv_work_t* req) {
   int ret = fread(buf, obj->reclen_, 1, obj->stream_);
   //TODO: if read fails
   if (ret == 1) {
-    obj->buf_ = malloc(obj->reclen_);
-    //TODO: if malloc fails
+    obj->buf_ = (char*)malloc(obj->reclen_);
+    assert(obj->buf_ != NULL);
     memcpy(obj->buf_, buf, obj->reclen_);
     return;
   }
@@ -225,7 +247,6 @@ void VsamFile::Dealloc(uv_work_t* req) {
 
 void VsamFile::DeallocCallback(uv_work_t* req, int status) {
   VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
 
   Napi::HandleScope scope(obj->env_);
   if (status == UV_ECANCELED) {
@@ -340,7 +361,9 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
     dyn.__normdisp = __DISP_CATLG;
     dyn.__lrecl = std::accumulate(layout_.begin(), layout_.end(), 0,
                                   [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
-    dyn.__keylength = layout_[0].maxLength;
+    dyn.__keyoffset = std::accumulate(layout_.begin(), layout_.begin() + key_i_, 0,
+                                  [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
+    dyn.__keylength = layout_[key_i_].maxLength;
     dyn.__recorg = __KS;
     if (dynalloc(&dyn) != 0) {
       errmsg_ = "Failed to allocate dataset";
@@ -357,7 +380,7 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
   fldata(stream_, NULL, &dinfo);
   keylen_ = dinfo.__vsamkeylen;
   reclen_ = dinfo.__maxreclen;
-  if (keylen_ != layout_[0].maxLength) {
+  if (keylen_ != layout_[key_i_].maxLength) {
     errmsg_ = "Incorrect key length";
     fclose(stream_);
     stream_ = NULL;
@@ -510,7 +533,6 @@ void VsamFile::Close(const Napi::CallbackInfo& args) {
     Napi::Error::New(env_, "VSAM file is not open.").ThrowAsJavaScriptException();
     return;
   }
-
   if (fclose(stream_)) {
     Napi::Error::New(env_, "Error closing file.").ThrowAsJavaScriptException();
     return;
@@ -554,16 +576,19 @@ void VsamFile::Write(const Napi::CallbackInfo& info) {
   if (buf_) {
     free(buf_);
   }
-  buf_ = malloc(reclen_); //TODO: error
+  buf_ = (char*)malloc(reclen_);
+  assert(buf_ != NULL);
   memset(buf_,0,reclen_);
-  char* buf = (char*)buf_;
+  char* buf = buf_;
   for(auto i = layout_.begin(); i != layout_.end(); ++i) {
     Napi::Value field = record.Get(&(i->name[0]));
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
       std::string key = static_cast<std::string>(Napi::String (env_, field.ToString()));
       if (i->type == LayoutItem::STRING) {
+        assert((buf - buf_) + key.length() <= reclen_);
         memcpy(buf, key.c_str(), key.length());
       } else {
+        assert((buf - buf_) + i->maxLength <= reclen_);
         hexstrToBuffer(buf, i->maxLength, key.c_str());
       }
     } else {
@@ -596,9 +621,10 @@ void VsamFile::Update(const Napi::CallbackInfo& info) {
   if (buf_) {
     free(buf_);
   }
-  buf_ = malloc(reclen_); //TODO: error
+  buf_ = (char*)malloc(reclen_);
+  assert(buf_ != NULL);
   memset(buf_,0,reclen_);
-  char* buf = (char*)buf_;
+  char* buf = buf_;
   for(auto i = layout_.begin(); i != layout_.end(); ++i) {
     Napi::Value field = record.Get(&(i->name[0]));
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
@@ -662,7 +688,8 @@ void VsamFile::Find(const Napi::CallbackInfo& info, int equality) {
       }
       keybuf_len = info[1].As<Napi::Number>().Uint32Value();
       if (keybuf_len > 0) {
-        keybuf = (char*)malloc(keybuf_len); // TODO check error
+        keybuf = (char*)malloc(keybuf_len);
+        assert(keybuf != NULL);
         memcpy(keybuf, buf, keybuf_len);
       } else {
         Napi::TypeError::New(env_, "Key buffer length must be greater than 0.").ThrowAsJavaScriptException();
@@ -752,10 +779,19 @@ void VsamFile::Dealloc(const Napi::CallbackInfo& info) {
 
 
 static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
-   const int hexstrlen = strlen(hexstr);
    memset(hexbuf,0,buflen);
    char xx[2];
    int i, j, x;
+   if (hexstr[0] == '0' && (hexstr[1] == 'x' || hexstr[1] == 'X')) {
+     hexstr += 2;
+   } else if (hexstr[0] == 'x' || hexstr[0] == 'X') {
+     hexstr += 1;
+   }
+   if (hexstr[0] == 0) {
+     return hexbuf;
+   }
+   int hexstrlen = strlen(hexstr);
+   hexstrlen = std::min(hexstrlen, buflen * 2);
    for (i=0,j=0; i<hexstrlen-(hexstrlen%2); ) {
      xx[0] = hexstr[i++];
      xx[1] = hexstr[i++];

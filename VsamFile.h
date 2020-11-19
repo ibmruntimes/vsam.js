@@ -85,7 +85,7 @@ class VsamFile : public Napi::ObjectWrap<VsamFile> {
   int key_i_;
   unsigned keylen_, reclen_;
   FILE *stream_;
-  void *buf_;
+  char* buf_;
   int lastrc_;
   int equality_;
   std::string errmsg_;

@@ -111,11 +111,13 @@ void VsamFile::Find(uv_work_t* req) {
       Napi::TypeError::New(obj->env_, "find: Buffer object is empty.").ThrowAsJavaScriptException();
       return;
     }
+    LayoutItem& key_layout = obj->layout_[obj->key_i_];
     buf = obj->keybuf_;
-    buflen = obj->keybuf_len_;
+    buflen = std::min(key_layout.maxLength, obj->keybuf_len_);
 #ifdef DEBUG
-    fprintf(stderr,"Line %d: obj->keybuf_len_=%d, buf=",__LINE__, obj->keybuf_len_);
-    for (int i=0; i<obj->keybuf_len_; i++)
+    fprintf(stderr,"Line %d: key_layout.maxLength=%d, obj->keybuf_len_=%d, buflen=%d, buf=",
+                   __LINE__, key_layout.maxLength, obj->keybuf_len_, buflen);
+    for (int i=0; i<buflen; i++)
       fprintf(stderr,"%x ",buf[i]);
     fprintf(stderr,"\n");
 #endif

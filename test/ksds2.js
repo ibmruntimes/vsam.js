@@ -51,6 +51,7 @@ describe("Key Sequenced Dataset #2", function() {
       });
     }
   });
+
   it("ensure test dataset does not exist", function(done) {
     expect(vsam.exist(testSet)).to.be.false;
     done();
@@ -82,11 +83,105 @@ describe("Key Sequenced Dataset #2", function() {
       vsam.openSync(testSet,
                     JSON.parse(fs.readFileSync('test/test2.json')),
                     'rb,type=record');
-    }).to.throw(/Failed to open dataset/);
+    }).to.throw(/Error: failed to open dataset: EDC5041I An error was detected at the system level when opening a file./);
     done();
   });
 
- it("write new record, provide key as Buffer.toString('hex')", function(done) {
+  it("verify error from zero-length key buffer", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    const keybuf = Buffer.from([]);
+    expect(() => {
+      file.find(keybuf, keybuf.length, (record, err) => {});
+    }).to.throw(/Error: length of 'key' must be 1 or more./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from zero-length key string", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    expect(() => {
+      file.find("", (record, err) => {});
+    }).to.throw(/Error: length of 'key' must be 1 or more./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from hexadecimal key buffer exceeding max length", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0xa7, 0xb8, 0x00]);
+    expect(() => {
+      file.find(keybuf, keybuf.length, (record, err) => {});
+    }).to.throw(/Error: length 9 of 'key' exceeds schema's length 8./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from hexadecimal key string exceeding max length", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    expect(() => {
+      file.find("0xa1b2c3d4e5f6a7a800", (record, err) => {});
+    }).to.throw(/Error: number of hex digits 9 for 'key' exceed schema's length 8./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from hexadecimal key string containing non-hex", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    expect(() => {
+      file.find("0xa1g2c3d4e5f6a7a800", (record, err) => {});
+    }).to.throw(/Error: hex string for 'key' must contain only hex digits 0-9 and a-f or A-F, with an optional 0x prefix./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from hexadecimal key string prefixed with invalid 0y", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    expect(() => {
+      file.find("0ya1b2c3d4e5f6a7a800", (record, err) => {});
+    }).to.throw(/Error: hex string for 'key' must contain only hex digits 0-9 and a-f or A-F, with an optional 0x prefix./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from write record with hexadecimal key string exceeding max length", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0xa7, 0xb8, 0x00]);
+    record = {
+      key: keybuf.toString('hex'),
+      name: "JOHN",
+      amount: "1234"
+    };
+    expect(() => {
+      file.write(record, (err) => {});
+    }).to.throw(/Error: number of hex digits 9 for 'key' exceed schema's length 8./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("verify error from write record with a field exceeding max length", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0xa7, 0xb8]);
+    record = {
+      key: keybuf.toString('hex'),
+      name: "exceed by 1",
+      amount: "1234"
+    };
+    expect(() => {
+      file.write(record, (err) => {});
+    }).to.throw(/Error: length 11 of 'name' exceeds schema's length 10./);
+    expect(file.close()).to.not.throw;
+    done();
+  });
+
+  it("write new record, provide key as Buffer.toString('hex')", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
@@ -102,7 +197,7 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
- it("write another new record, provide key as Buffer", function(done) {
+  it("write another new record, provide key as Buffer", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
 // not supported yet:
@@ -116,6 +211,20 @@ describe("Key Sequenced Dataset #2", function() {
     };
     file.write(record, (err) => {
       assert.ifError(err);
+      expect(file.close()).to.not.throw;
+      done();
+    });
+  });
+
+  it("verify update with value length less than minLength specified", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    file.find("e5f6789afabcd000", (record, err) => {
+      assert.ifError(err);
+      record.name = "";
+      expect(() => {
+        file.update(record, (err) => {});
+      }).to.throw(/Error: length of 'name' must be 1 or more./);
       expect(file.close()).to.not.throw;
       done();
     });
@@ -192,7 +301,7 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("delete existing record", function(done) {
+  it("delete existing record, then find it and verify error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
 //  const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
@@ -204,11 +313,11 @@ describe("Key Sequenced Dataset #2", function() {
       assert.equal(record.amount, "1234", "created record has correct amount");
       file.delete( (err) => {
         assert.ifError(err);
-        file.find("A1B2c3D4", (err) => {
-          assert.ifError(err);
-          expect(file.close()).to.not.throw;
-          done();
+        file.find("a1b2c3d4", (record, err) => {
+          assert.equal(record, null, "deleted record not found"); 
         });
+        expect(file.close()).to.not.throw;
+        done();
       });
     });
   });
@@ -223,7 +332,7 @@ describe("Key Sequenced Dataset #2", function() {
     expect(() => {
       vsam.openSync(testSet,
                     JSON.parse(fs.readFileSync('test/test-error.json')));
-    }).to.throw(/Incorrect key length/);
+    }).to.throw(/Error: key length 8 doesn't match length 6 in schema./);
     done();
   });
 
@@ -281,6 +390,7 @@ describe("Key Sequenced Dataset #2", function() {
       });
     });
   });
+
   it("deallocate a dataset", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));

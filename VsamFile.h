@@ -6,87 +6,101 @@
 
 #pragma once
 #include <napi.h>
-#include <uv.h>
-#include <node_object_wrap.h>
-#include <uv.h>
 #include <string>
 
-class VsamFile : public Napi::ObjectWrap<VsamFile> {
- public:
-  static void Init(Napi::Env env, Napi::Object exports);
-  VsamFile(const Napi::CallbackInfo& info);
-
-  static Napi::Value OpenSync(const Napi::CallbackInfo& info);
-  static Napi::Value AllocSync(const Napi::CallbackInfo& info);
-  static Napi::Boolean Exist(const Napi::CallbackInfo& info);
-  ~VsamFile();
-
- private:
-  struct LayoutItem {
-    enum DataType {
-      STRING,
-      HEXADECIMAL
-    };
-
-    std::vector<char> name;
-    int maxLength;
-    DataType type;
-    LayoutItem(std::string& n, int m, DataType t) :
-      name(n.length()+1), maxLength(m), type(t) {
-      strcpy(&name[0], n.c_str());
-    }
+struct LayoutItem {
+  enum DataType {
+    STRING,
+    HEXADECIMAL
   };
 
-  /* Entry point from Javascript */
-  void Close(const Napi::CallbackInfo& info);
-  void Read(const Napi::CallbackInfo& info);
-  void Find(const Napi::CallbackInfo& info, int equality);
-  void FindEq(const Napi::CallbackInfo& info);
-  void FindGe(const Napi::CallbackInfo& info);
-  void FindFirst(const Napi::CallbackInfo& info);
-  void FindLast(const Napi::CallbackInfo& info);
-  void Update(const Napi::CallbackInfo& info);
-  void Write(const Napi::CallbackInfo& info);
-  void Delete(const Napi::CallbackInfo& info);
-  void Dealloc(const Napi::CallbackInfo& info);
+  std::string name;
+  int minLength;
+  int maxLength;
+  DataType type;
+  LayoutItem(std::string& n, int mn, int mx, DataType t) :
+    name(n), minLength(mn), maxLength(mx), type(t) {
+  }
+};
+
+class VsamFile;
+
+// This is the 'data' member in uv_work_t request:
+struct UvWorkData {
+  UvWorkData (VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env, 
+              char *recbuf=NULL, std::string keystr="",
+              char *keybuf=NULL, int keybuf_len=0, int equality=0)
+  : pVsamFile_(pVsamFile),
+    cb_(Napi::Persistent(cbfunc)),
+    env_(env),
+    recbuf_(recbuf),
+    keystr_(keystr),
+    keybuf_(keybuf),
+    keybuf_len_(keybuf_len),
+    equality_(equality),
+    rc_(0) {}
+
+  ~UvWorkData () {
+    if (recbuf_) {
+      free(recbuf_);
+      recbuf_ = NULL;
+    }
+    if (keybuf_) {
+      free(keybuf_);
+      keybuf_ = NULL;
+    }
+  }
+
+  VsamFile *pVsamFile_;
+  Napi::FunctionReference cb_;
+  Napi::Env env_;
+  char *recbuf_;
+  std::string keystr_;
+  char *keybuf_;
+  int keybuf_len_;
+  int equality_;
+  int rc_;
+  std::string errmsg_;
+};
+
+class VsamFile {
+ public:
+  VsamFile(const std::string& path, const std::vector<LayoutItem>& layout,
+           int key_i, const std::string& omode, bool alloc);
+  ~VsamFile();
+
+  int getKeyNum() const { return key_i_; }
+  int getRecordLength() const { return reclen_; }
+  int getLastError(std::string& errmsg) const {errmsg = errmsg_; return rc_;}
+  std::vector<LayoutItem>& getLayout() { return layout_; }
+  bool isDatasetOpen () const { return (stream_ != NULL); }
+  static std::string formatDatasetName (const std::string& path );
+  static bool isDatasetExist (const std::string& path, int* perr=0, int* perr2=0 );
+  static bool isStrValid (const LayoutItem& item, const std::string& str, std::string& errmsg);
+  static bool isHexBufValid (const LayoutItem& item, const char* buf, int len, std::string& errmsg);
+  static bool isHexStrValid (const LayoutItem& item, const std::string& hexstr, std::string& errmsg);
+  static int hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr);
+  static int bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen);
+
+
+  /* Sync WrappedVsam functions */
+  int Close(std::string& errmsg);
 
   /* Work functions */
-  static void Open(uv_work_t* req);
-  static void Alloc(uv_work_t* req);
-  static void Dealloc(uv_work_t* req);
-  static void Read(uv_work_t* req);
-  static void Find(uv_work_t* req);
-  static void Update(uv_work_t* req);
-  static void Write(uv_work_t* req);
-  static void Delete(uv_work_t* req);
+  void ReadExecute(UvWorkData *pdata);
+  void FindExecute(UvWorkData *pdata);
+  void UpdateExecute(UvWorkData *pdata);
+  void WriteExecute(UvWorkData *pdata);
+  void DeleteExecute(UvWorkData *pdata);
+  void DeallocExecute(UvWorkData *pdata);
 
-  /* Work callback functions */
-  static void OpenCallback(uv_work_t* req, int statusj);
-  static void AllocCallback(uv_work_t* req, int statusj);
-  static void DeallocCallback(uv_work_t* req, int statusj);
-  static void ReadCallback(uv_work_t* req, int status);
-  static void UpdateCallback(uv_work_t* req, int status);
-  static void WriteCallback(uv_work_t* req, int status);
-  static void DeleteCallback(uv_work_t* req, int status);
-
-  /* Private methods */
-  static Napi::Value Construct(const Napi::CallbackInfo& info, bool alloc);
-
-  /* Data */
-  static Napi::FunctionReference constructor_;
-  Napi::Env env_;
-  Napi::FunctionReference cb_;
+ private:
+  FILE *stream_;
   std::string path_;
   std::string omode_;
-  std::string key_;
-  char* keybuf_;
-  int keybuf_len_;
   std::vector<LayoutItem> layout_;
+  int rc_;
+  std::string errmsg_;
   int key_i_;
   unsigned keylen_, reclen_;
-  FILE *stream_;
-  char* buf_;
-  int lastrc_;
-  int equality_;
-  std::string errmsg_;
 };

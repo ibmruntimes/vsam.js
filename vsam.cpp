@@ -5,17 +5,17 @@
 */
 
 #include <napi.h>
-#include "VsamFile.h"
+#include "WrappedVsam.h"
 
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
-  VsamFile::Init(env,exports);
+  WrappedVsam::Init(env,exports);
 
   exports.Set(Napi::String::New(env, "openSync"),
-              Napi::Function::New(env, VsamFile::OpenSync));
+              Napi::Function::New(env, WrappedVsam::OpenSync));
   exports.Set(Napi::String::New(env, "allocSync"),
-              Napi::Function::New(env, VsamFile::AllocSync));
+              Napi::Function::New(env, WrappedVsam::AllocSync));
   exports.Set(Napi::String::New(env, "exist"),
-              Napi::Function::New(env, VsamFile::Exist));
+              Napi::Function::New(env, WrappedVsam::Exist));
   return exports;
 }
 

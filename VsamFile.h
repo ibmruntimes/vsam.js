@@ -28,11 +28,12 @@ class VsamFile;
 // This is the 'data' member in uv_work_t request:
 struct UvWorkData {
   UvWorkData (VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env, 
-              char *recbuf=NULL, std::string keystr="",
+              const std::string& path="", char *recbuf=NULL, std::string keystr="",
               char *keybuf=NULL, int keybuf_len=0, int equality=0)
   : pVsamFile_(pVsamFile),
     cb_(Napi::Persistent(cbfunc)),
     env_(env),
+    path_(path),
     recbuf_(recbuf),
     keystr_(keystr),
     keybuf_(keybuf),
@@ -54,6 +55,7 @@ struct UvWorkData {
   VsamFile *pVsamFile_;
   Napi::FunctionReference cb_;
   Napi::Env env_;
+  std::string path_;
   char *recbuf_;
   std::string keystr_;
   char *keybuf_;
@@ -86,13 +88,15 @@ class VsamFile {
   /* Sync WrappedVsam functions */
   int Close(std::string& errmsg);
 
+  /* static because WrappedVsam::Close() delete its VsamFile object */
+  static void DeallocExecute(UvWorkData *pdata);
+
   /* Work functions */
   void ReadExecute(UvWorkData *pdata);
   void FindExecute(UvWorkData *pdata);
   void UpdateExecute(UvWorkData *pdata);
   void WriteExecute(UvWorkData *pdata);
   void DeleteExecute(UvWorkData *pdata);
-  void DeallocExecute(UvWorkData *pdata);
 
  private:
   FILE *stream_;

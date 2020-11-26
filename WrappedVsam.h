@@ -60,4 +60,5 @@ class WrappedVsam : public Napi::ObjectWrap<WrappedVsam> {
 private:
   static Napi::FunctionReference constructor_;
   VsamFile *pVsamFile_;
+  std::string path_; // for Dealloc(), pVsamFile_ is deleted in Close()
 };

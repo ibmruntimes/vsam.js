@@ -148,9 +148,9 @@ void WrappedVsam::UpdateExecute(uv_work_t* req) {
 
 void WrappedVsam::DeallocExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
-  VsamFile* obj = pdata->pVsamFile_;
-  assert (obj != NULL);
-  obj->DeallocExecute(pdata);
+  assert (pdata->pVsamFile_ == NULL);
+  assert (pdata->path_.length() > 0);
+  VsamFile::DeallocExecute(pdata);
 }
 
 
@@ -165,14 +165,14 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo& info)
     return;
   }
 
-  std::string path = static_cast<std::string>(info[0].As<Napi::String>());
+  path_ = static_cast<std::string>(info[0].As<Napi::String>());
   Napi::Buffer<std::vector<LayoutItem>> b = info[1].As<Napi::Buffer<std::vector<LayoutItem>>>();
   std::vector<LayoutItem> layout = *(static_cast<std::vector<LayoutItem>*>(b.Data()));
   int key_i = static_cast<int>(info[2].As<Napi::Number>().Int32Value());
   std::string omode = static_cast<std::string>(info[3].As<Napi::String>());
   bool alloc(static_cast<bool>(info[4].As<Napi::Boolean>()));
 
-  pVsamFile_ = new VsamFile(path, layout, key_i, omode, alloc);
+  pVsamFile_ = new VsamFile(path_, layout, key_i, omode, alloc);
 }
 
 
@@ -362,6 +362,8 @@ void WrappedVsam::Close(const Napi::CallbackInfo& info) {
     Napi::Error::New(info.Env(), errmsg).ThrowAsJavaScriptException();
     return;
   }
+  delete pVsamFile_;
+  pVsamFile_ = NULL;
 }
 
 
@@ -421,7 +423,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
 
   uv_work_t* request = new uv_work_t;
   Napi::Function cb = info[1].As<Napi::Function>();
-  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), recbuf);
+  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", recbuf);
   uv_queue_work(uv_default_loop(), request, WriteExecute, WriteComplete);
 }
 
@@ -469,7 +471,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo& info) {
 
   uv_work_t* request = new uv_work_t;
   Napi::Function cb = info[1].As<Napi::Function>();
-  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), recbuf);
+  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", recbuf);
   uv_queue_work(uv_default_loop(), request, UpdateExecute, UpdateComplete);
 }
 
@@ -596,7 +598,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
       assert(0);
   }
 #endif
-  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), 0, key, keybuf, keybuf_len, equality);
+  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", 0, key, keybuf, keybuf_len, equality);
   uv_queue_work(uv_default_loop(), request, FindExecute, ReadComplete);
 }
 
@@ -622,11 +624,12 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo& info) {
   }
   if (pVsamFile_ && pVsamFile_->isDatasetOpen()) {
     Napi::HandleScope scope(info.Env());
-    Napi::Error::New(info.Env(), "Cannot dealloc an open VSAM dataset.").ThrowAsJavaScriptException();
+    Napi::Error::New(info.Env(), "Error: cannot dealloc an open VSAM dataset.").ThrowAsJavaScriptException();
     return;
   }
+  assert (pVsamFile_ == NULL);
   uv_work_t* request = new uv_work_t;
   Napi::Function cb = info[0].As<Napi::Function>();
-  request->data = new UvWorkData(pVsamFile_, cb, info.Env());
+  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), path_);
   uv_queue_work(uv_default_loop(), request, DeallocExecute, DeallocComplete);
 }

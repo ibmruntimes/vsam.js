@@ -130,8 +130,8 @@ void VsamFile::UpdateExecute(UvWorkData *pdata) {
 
 // static
 void VsamFile::DeallocExecute(UvWorkData *pdata) {
-  assert(path_.length() > 0);
-  std::string dataset = formatDatasetName(path_);
+  assert(pdata->path_.length() > 0);
+  std::string dataset = formatDatasetName(pdata->path_);
   pdata->rc_ = remove(dataset.c_str());
   if (pdata->rc_ != 0)
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: dealloc() failed");

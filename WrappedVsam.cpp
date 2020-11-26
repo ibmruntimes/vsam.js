@@ -33,15 +33,11 @@ void WrappedVsam::DefaultComplete(uv_work_t* req, int status) {
   }
   Napi::HandleScope scope(pdata->env_);
   assert(pdata->cb_ != NULL && pdata->env_ != NULL);
-  pdata->cb_.SuppressDestruct();
-  if (pdata->rc_ != 0) {
+  if (pdata->rc_ != 0)
     pdata->cb_.Call(pdata->env_.Global(), {Napi::String::New(pdata->env_, pdata->errmsg_)});
-    delete pdata;
-  }
-  else {
+  else
     pdata->cb_.Call(pdata->env_.Global(), {pdata->env_.Null()});
-    delete pdata;
-  }
+  delete pdata;
 }
 
 
@@ -75,7 +71,6 @@ void WrappedVsam::ReadComplete(uv_work_t* req, int status) {
   }
   Napi::HandleScope scope(pdata->env_);
   assert(pdata->cb_ != NULL && pdata->env_ != NULL);
-  pdata->cb_.SuppressDestruct();
   if (pdata->rc_ != 0) {
     pdata->cb_.Call(pdata->env_.Global(), {pdata->env_.Null(), Napi::String::New(pdata->env_, pdata->errmsg_)});
     delete pdata;
@@ -165,10 +160,10 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo& info)
   fprintf(stderr,"In WrappedVsam constructor.\n");
 #endif
   if (info.Length() != 5) {
+    Napi::HandleScope scope(info.Env());
     throwError(info.Env(), "Error: wrong number of arguments to WrappedVsam constructor: got %d, expected 5.", info.Length());
     return;
   }
-  Napi::HandleScope scope(info.Env());
 
   std::string path = static_cast<std::string>(info[0].As<Napi::String>());
   Napi::Buffer<std::vector<LayoutItem>> b = info[1].As<Napi::Buffer<std::vector<LayoutItem>>>();
@@ -347,7 +342,7 @@ Napi::Object WrappedVsam::OpenSync(const Napi::CallbackInfo& info) {
 
 // static
 Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo& info) {
-  Napi::EscapableHandleScope scope(info.Env());
+  Napi::HandleScope scope(info.Env());
   if (info.Length() != 1 || !info[0].IsString()) {
     Napi::TypeError::New(info.Env(), "Error: exist() expects argument: VSAM dataset name.").ThrowAsJavaScriptException();
     return Napi::Boolean::New(info.Env(), false);
@@ -363,6 +358,7 @@ void WrappedVsam::Close(const Napi::CallbackInfo& info) {
   fprintf(stderr,"Closing VSAM dataset...\n");
 #endif
   if (pVsamFile_->Close(errmsg)) {
+    Napi::HandleScope scope(info.Env());
     Napi::Error::New(info.Env(), errmsg).ThrowAsJavaScriptException();
     return;
   }
@@ -382,6 +378,7 @@ void WrappedVsam::Delete(const Napi::CallbackInfo& info) {
 
 
 void WrappedVsam::Write(const Napi::CallbackInfo& info) {
+  Napi::HandleScope scope(info.Env());
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
     Napi::TypeError::New(info.Env(), "Error: write() expects arguments: record, function.").ThrowAsJavaScriptException();
     return;
@@ -430,6 +427,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
 
 
 void WrappedVsam::Update(const Napi::CallbackInfo& info) {
+  Napi::HandleScope scope(info.Env());
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
     Napi::TypeError::New(info.Env(), "Error: write() expects arguments: record, function.").ThrowAsJavaScriptException();
     return;
@@ -497,6 +495,7 @@ void WrappedVsam::FindLast(const Napi::CallbackInfo& info) {
 
 
 void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
+  Napi::HandleScope scope(info.Env());
   std::string key;
   char* keybuf = NULL;
   int keybuf_len = 0;
@@ -604,6 +603,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
 
 void WrappedVsam::Read(const Napi::CallbackInfo& info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::HandleScope scope(info.Env());
     Napi::Error::New(info.Env(), "Error: read() expects argument: function.").ThrowAsJavaScriptException();
     return;
   }
@@ -616,10 +616,12 @@ void WrappedVsam::Read(const Napi::CallbackInfo& info) {
 
 void WrappedVsam::Dealloc(const Napi::CallbackInfo& info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::HandleScope scope(info.Env());
     Napi::Error::New(info.Env(), "Error: dealloc() expects argument: function.").ThrowAsJavaScriptException();
     return;
   }
   if (pVsamFile_ && pVsamFile_->isDatasetOpen()) {
+    Napi::HandleScope scope(info.Env());
     Napi::Error::New(info.Env(), "Cannot dealloc an open VSAM dataset.").ThrowAsJavaScriptException();
     return;
   }

@@ -24,7 +24,7 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
   int rc;
   const char* buf;
   int buflen;
-  LayoutItem& key_layout = layout_[key_i_];
+  const LayoutItem& key_layout = layout_[key_i_];
 
   if (pdata->keybuf_) {
     assert(pdata->keybuf_len_ > 0);
@@ -39,6 +39,7 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
 #endif
   } else if (pdata->equality_ != __KEY_FIRST && pdata->equality_ != __KEY_LAST) {
     assert(pdata->keystr_.length() > 0);
+    assert(pdata->keybuf_len_ == 0);
     if (key_layout.type == LayoutItem::HEXADECIMAL) {
       char buf[key_layout.maxLength];
       assert(key_layout.maxLength == keylen_);
@@ -98,8 +99,7 @@ void VsamFile::ReadExecute(UvWorkData *pdata) {
   int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
   if (nread == 1)
     return;
-  pdata->rc_ = 0;
-  delete pdata->recbuf_;
+  free(pdata->recbuf_);
   pdata->recbuf_ = NULL;
 }
 
@@ -112,6 +112,7 @@ void VsamFile::DeleteExecute(UvWorkData *pdata) {
 
 
 void VsamFile::WriteExecute(UvWorkData *pdata) {
+  assert(pdata->recbuf_ != NULL);
   int nelem = fwrite(pdata->recbuf_, reclen_, 1, stream_);
   if (nelem != 1) {
     pdata->rc_ = 1;
@@ -121,6 +122,7 @@ void VsamFile::WriteExecute(UvWorkData *pdata) {
 
 
 void VsamFile::UpdateExecute(UvWorkData *pdata) {
+  assert(pdata->recbuf_ != NULL);
   int nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
   if (nbytes != getRecordLength()) {
     pdata->rc_ = 1;
@@ -317,6 +319,7 @@ int VsamFile::hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
     sscanf(xx,"%2x", &x);
     hexbuf[j] = x;
   }
+  assert(j <= buflen);
   return j;
 }
 

@@ -28,7 +28,7 @@ class VsamFile;
 // This is the 'data' member in uv_work_t request:
 struct UvWorkData {
   UvWorkData (VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env, 
-              const std::string& path="", char *recbuf=NULL, std::string keystr="",
+              const std::string& path="", char *recbuf=NULL, const std::string& keystr="",
               char *keybuf=NULL, int keybuf_len=0, int equality=0)
   : pVsamFile_(pVsamFile),
     cb_(Napi::Persistent(cbfunc)),

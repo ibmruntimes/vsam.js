@@ -169,7 +169,7 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo& info)
   Napi::Buffer<std::vector<LayoutItem>> b = info[1].As<Napi::Buffer<std::vector<LayoutItem>>>();
   std::vector<LayoutItem> layout = *(static_cast<std::vector<LayoutItem>*>(b.Data()));
   int key_i = static_cast<int>(info[2].As<Napi::Number>().Int32Value());
-  std::string omode = static_cast<std::string>(info[3].As<Napi::String>());
+  const std::string& omode = static_cast<std::string>(info[3].As<Napi::String>());
   bool alloc(static_cast<bool>(info[4].As<Napi::Boolean>()));
 
   pVsamFile_ = new VsamFile(path_, layout, key_i, omode, alloc);
@@ -185,6 +185,7 @@ WrappedVsam::~WrappedVsam() {
     pVsamFile_ = NULL;
   }
 }
+
 
 Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
   Napi::HandleScope scope(env);
@@ -216,17 +217,17 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo& info, bool alloc) 
   Napi::EscapableHandleScope scope(env);
 
   std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
-  Napi::Object schema = info[1].ToObject();
-  std::string mode = info.Length() == 2 ? "ab+,type=record"
+  const Napi::Object& schema = info[1].ToObject();
+  const std::string& mode = info.Length() == 2 ? "ab+,type=record"
                      : (static_cast<std::string>(info[2].As<Napi::String>()));
-  Napi::Array properties = schema.GetPropertyNames();
+  const Napi::Array& properties = schema.GetPropertyNames();
   std::vector<LayoutItem> layout;
   int key_i = 0; // for its data type - default to first field if no "key" found
 
   for (int i = 0; i < properties.Length(); ++i) {
     std::string name (static_cast<std::string>(Napi::String (env, properties.Get(i).ToString())));
 
-    Napi::Object item = schema.Get(properties.Get(i)).As<Napi::Object>();
+    const Napi::Object& item = schema.Get(properties.Get(i)).As<Napi::Object>();
     if (item.IsEmpty()) {
       throwError(env, "Error in JSON: item %d is empty.", i+1);
       return env.Null().ToObject();
@@ -234,7 +235,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo& info, bool alloc) 
 
     int minLength = 0; // minLength is optional, default 0 unless it's a key
     if (item.Has("minLength")) {
-      Napi::Value vminLength = item.Get("minLength");
+      const Napi::Value& vminLength = item.Get("minLength");
       if (!vminLength.IsEmpty() && !vminLength.IsNumber()) {
         throwError(env, "Error in JSON (item %d): minLength value must be numeric.", i+1);
         return env.Null().ToObject();
@@ -252,7 +253,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo& info, bool alloc) 
       throwError(env, "Error in JSON (item %d): maxLength must be specified.", i+1);
       return env.Null().ToObject();
     }
-    Napi::Value vmaxLength = item.Get("maxLength");
+    const Napi::Value& vmaxLength = item.Get("maxLength");
     if (!vmaxLength.IsNumber()) {
       throwError(env, "Error in JSON (item %d): maxLength must be numeric.", i+1);
       return env.Null().ToObject();
@@ -269,30 +270,32 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo& info, bool alloc) 
       return env.Null().ToObject();
     }
 
-    Napi::Value jtype;
-    if (!item.Has("type") || !(jtype = item.Get("type")) || jtype.IsEmpty()) {
+    if (item.Has("type")) {
+      const Napi::Value& jtype = item.Get("type");
+      const std::string& stype(static_cast<std::string>(jtype.As<Napi::String>()));
+
+      if (!strcmp(stype.c_str(),"string")) {
+        layout.push_back(LayoutItem(name, minLength, maxLength, LayoutItem::STRING));
+      } else if (!strcmp(stype.c_str(),"hexadecimal")) {
+        layout.push_back(LayoutItem(name, minLength, maxLength, LayoutItem::HEXADECIMAL));
+      } else {
+        throwError(env, "Error in JSON (item %d): \"type\" must be either \"string\" or \"hexadecimal\"", i+1);
+        return env.Null().ToObject();
+      }
+      if (!strcmp(name.c_str(),"key")) {
+        key_i = i;
+      }
+    }
+    else {
       throwError(env, "Error in JSON (item %d): \"type\" must be specified (string or hexadecimal)", i+1);
       return env.Null().ToObject();
     }
-
-    std::string stype(static_cast<std::string>(jtype.As<Napi::String>()));
-    if (!strcmp(stype.c_str(),"string")) {
-      layout.push_back(LayoutItem(name, minLength, maxLength, LayoutItem::STRING));
-    } else if (!strcmp(stype.c_str(),"hexadecimal")) {
-      layout.push_back(LayoutItem(name, minLength, maxLength, LayoutItem::HEXADECIMAL));
-    } else {
-      throwError(env, "Error in JSON (item %d): \"type\" must be either \"string\" or \"hexadecimal\"", i+1);
-      return env.Null().ToObject();
-    }
-    if (!strcmp(name.c_str(),"key")) {
-      key_i = i;
-    }
   }
 
-  Napi::Object item = schema.Get(properties.Get(key_i)).As<Napi::Object>();
+  const Napi::Object& item = schema.Get(properties.Get(key_i)).As<Napi::Object>();
   assert (!item.IsEmpty());
   if (item.Has("minLength")) {
-    Napi::Value vminLength = item.Get(Napi::String::New(env,"minLength"));
+    const Napi::Value& vminLength = item.Get(Napi::String::New(env,"minLength"));
     if (vminLength.ToNumber().Int32Value() == 0) {
       throwError(env, "Error in JSON (item %d): minLength of key '%s' must be greater than 0.", key_i+1, layout[key_i].name.c_str());
       return env.Null().ToObject();
@@ -347,7 +350,7 @@ Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo& info) {
     Napi::TypeError::New(info.Env(), "Error: exist() expects argument: VSAM dataset name.").ThrowAsJavaScriptException();
     return Napi::Boolean::New(info.Env(), false);
   }
-  std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
+  const std::string& path (static_cast<std::string>(info[0].As<Napi::String>()));
   return Napi::Boolean::New(info.Env(), VsamFile::isDatasetExist(path));
 }
 
@@ -385,7 +388,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
     Napi::TypeError::New(info.Env(), "Error: write() expects arguments: record, function.").ThrowAsJavaScriptException();
     return;
   }
-  Napi::Object record = info[0].ToObject();
+  const Napi::Object& record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char*)malloc(reclen);
   assert(recbuf != NULL && reclen > 0);
@@ -395,9 +398,9 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
   std::string errmsg;
 
   for(auto i = layout.begin(); i != layout.end(); ++i) {
-    Napi::Value field = record.Get(i->name);
+    const Napi::Value& field = record.Get(i->name);
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
-      std::string str = static_cast<std::string>(Napi::String (info.Env(), field.ToString()));
+      const std::string& str = static_cast<std::string>(Napi::String (info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, errmsg)) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
@@ -435,7 +438,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo& info) {
     return;
   }
 
-  Napi::Object record = info[0].ToObject();
+  const Napi::Object& record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char*)malloc(reclen);
   assert(recbuf != NULL);
@@ -445,9 +448,9 @@ void WrappedVsam::Update(const Napi::CallbackInfo& info) {
   std::string errmsg;
 
   for(auto i = layout.begin(); i != layout.end(); ++i) {
-    Napi::Value field = record.Get(i->name);
+    const Napi::Value& field = record.Get(i->name);
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
-      std::string str = static_cast<std::string>(Napi::String (info.Env(), field.ToString()));
+      const std::string& str = static_cast<std::string>(Napi::String (info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, errmsg)) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
@@ -529,7 +532,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
       }
       callbackArg = 1;
     } else if (info[0].IsObject()) {
-      char* buf = info[0].As<Napi::Buffer<char>>().Data();
+      const char* buf = info[0].As<Napi::Buffer<char>>().Data();
       if (!info[1].IsNumber()) {
         Napi::TypeError::New(info.Env(), "Error: find() buffer argument must be followed by its length.").ThrowAsJavaScriptException();
         return;
@@ -560,6 +563,8 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
         strcpy(err,"Error: find() second argument must be a function.");
       } else if (callbackArg==2) {
         strcpy(err,"Error: find() thrid argument must be a function.");
+      } else {
+        assert(0);
       }
       Napi::Error::New(info.Env(),err).ThrowAsJavaScriptException();
       return;

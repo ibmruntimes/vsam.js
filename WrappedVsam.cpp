@@ -315,8 +315,13 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo& info, bool alloc) 
   if (!p || !p->pVsamFile_ || p->pVsamFile_->getLastError(errmsg) || !p->pVsamFile_->isDatasetOpen()) {
     const char *perr = errmsg.c_str();
     Napi::Error::New(env, perr && *perr ? perr : "Error: failed to construct VsamFile object.").ThrowAsJavaScriptException();
-    delete p;
-    return env.Null().ToObject();
+    if (p && p->pVsamFile_) {
+#ifdef DEBUG
+      fprintf(stderr,"Line %d: delete pVsamFile_ %p\n", __LINE__,p->pVsamFile_);
+#endif
+      delete p->pVsamFile_;
+      p->pVsamFile_ = NULL;
+    }
   }
   return scope.Escape(napi_value(obj)).ToObject();
 }

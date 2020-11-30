@@ -96,7 +96,7 @@ void WrappedVsam::ReadComplete(uv_work_t* req, int status) {
     }
     else if (i->type == LayoutItem::HEXADECIMAL) { 
       char hexstr[(i->maxLength*2)+1];
-      VsamFile::bufferToHexstr(hexstr, recbuf, i->maxLength);
+      VsamFile::bufferToHexstr(hexstr, sizeof(hexstr), recbuf, i->maxLength);
       record.Set(i->name, Napi::String::New(pdata->env_, hexstr));
     }
     recbuf += i->maxLength;
@@ -156,9 +156,6 @@ void WrappedVsam::DeallocExecute(uv_work_t* req) {
 
 WrappedVsam::WrappedVsam(const Napi::CallbackInfo& info)
 : Napi::ObjectWrap<WrappedVsam>(info) {
-#ifdef DEBUG
-  fprintf(stderr,"In WrappedVsam constructor.\n");
-#endif
   if (info.Length() != 5) {
     Napi::HandleScope scope(info.Env());
     throwError(info.Env(), "Error: wrong number of arguments to WrappedVsam constructor: got %d, expected 5.", info.Length());
@@ -173,11 +170,14 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo& info)
   bool alloc(static_cast<bool>(info[4].As<Napi::Boolean>()));
 
   pVsamFile_ = new VsamFile(path_, layout, key_i, omode, alloc);
+#if defined(DEBUG) || defined(XDEBUG)
+  fprintf(stderr, "WrappedVsam this=%p created pVsamFile_=%p\n", this, pVsamFile_);
+#endif
 }
 
 
 WrappedVsam::~WrappedVsam() {
-#ifdef DEBUG
+#if defined(DEBUG) || defined(XDEBUG)
   fprintf(stderr,"In WrappedVsam destructor this=%p, pVsamFile_=%p.\n", this, pVsamFile_);
 #endif
   if (pVsamFile_) {
@@ -406,6 +406,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
           return;
         }
+        assert(str.length() <= i->maxLength);
         assert((fldbuf - recbuf) + str.length() <= reclen);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
@@ -456,6 +457,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo& info) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
           return;
         }
+        assert(str.length() <= i->maxLength);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
       } else {

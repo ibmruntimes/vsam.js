@@ -41,8 +41,8 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
     assert(pdata->keystr_.length() > 0);
     assert(pdata->keybuf_len_ == 0);
     if (key_layout.type == LayoutItem::HEXADECIMAL) {
+      assert(key_layout.maxLength == keylen_ && keylen_ > 0);
       char buf[key_layout.maxLength];
-      assert(key_layout.maxLength == keylen_);
       buflen = hexstrToBuffer(buf, sizeof(buf), pdata->keystr_.c_str());
 #ifdef DEBUG
       fprintf(stderr,"Line %d: user string=<%s>, key_layout.maxLength=%d, keylen_=%d, buf=",
@@ -124,7 +124,7 @@ void VsamFile::WriteExecute(UvWorkData *pdata) {
 void VsamFile::UpdateExecute(UvWorkData *pdata) {
   assert(pdata->recbuf_ != NULL);
   int nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
-  if (nbytes != getRecordLength()) {
+  if (nbytes != reclen_) {
     pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: update() failed");
   }
@@ -294,6 +294,7 @@ int VsamFile::Close(std::string& errmsg) {
 
 
 int VsamFile::hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
+  assert(hexstr != NULL && hexbuf != NULL && buflen > 0);
   memset(hexbuf,0,buflen);
   if (hexstr[0] == 0)
     return 0;
@@ -306,25 +307,27 @@ int VsamFile::hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
     hexstr += 1;
   
   int hexstrlen = strlen(hexstr);
-  hexstrlen = std::min(hexstrlen, buflen * 2);
-  for (i=0, j=0; i < hexstrlen - (hexstrlen%2); ++j) {
+  assert(hexstrlen <= (buflen * 2));
+  for (i=0, j=0; j < buflen && i < hexstrlen - (hexstrlen%2); ++j) {
     xx[0] = hexstr[i++];
     xx[1] = hexstr[i++];
     sscanf(xx,"%2x", &x);
     hexbuf[j] = x;
   }
-  if (hexstrlen%2) {
+  if (j < buflen && hexstrlen%2) {
+    assert(i < strlen(hexstr));
     xx[0] = hexstr[i];
     xx[1] = '0';
     sscanf(xx,"%2x", &x);
-    hexbuf[j] = x;
+    hexbuf[j++] = x;
   }
   assert(j <= buflen);
   return j;
 }
 
 
-int VsamFile::bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen) {
+int VsamFile::bufferToHexstr (char* hexstr, int hexstrlen, const char* hexbuf, int hexbuflen) {
+  assert(hexstr != NULL && hexbuf != NULL && hexbuflen > 0);
   int i, j;
   *hexstr = 0;
   for (i=0, j=0; i < hexbuflen; i++, j+=2)
@@ -335,6 +338,7 @@ int VsamFile::bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuf
   //remove trailing '00's
   for (--j; j>2 && hexstr[j]=='0' && hexstr[j-1]=='0'; j-=2)
     hexstr[j-1] = 0;
+  assert(j < hexstrlen);
   return j;
 }
 

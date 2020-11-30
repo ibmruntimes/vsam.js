@@ -82,7 +82,7 @@ class VsamFile {
   static bool isHexBufValid (const LayoutItem& item, const char* buf, int len, std::string& errmsg);
   static bool isHexStrValid (const LayoutItem& item, const std::string& hexstr, std::string& errmsg);
   static int hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr);
-  static int bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen);
+  static int bufferToHexstr (char* hexstr, int hexstrlen, const char* hexbuf, int hexbuflen);
 
 
   /* Sync WrappedVsam functions */

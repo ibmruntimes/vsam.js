@@ -32,7 +32,7 @@ void WrappedVsam::DefaultComplete(uv_work_t* req, int status) {
     return;
   }
   Napi::HandleScope scope(pdata->env_);
-  assert(pdata->cb_ != NULL && pdata->env_ != NULL);
+  DCHECK (pdata->cb_ != NULL && pdata->env_ != NULL);
   if (pdata->rc_ != 0)
     pdata->cb_.Call(pdata->env_.Global(), {Napi::String::New(pdata->env_, pdata->errmsg_)});
   else
@@ -70,7 +70,7 @@ void WrappedVsam::ReadComplete(uv_work_t* req, int status) {
     return;
   }
   Napi::HandleScope scope(pdata->env_);
-  assert(pdata->cb_ != NULL && pdata->env_ != NULL);
+  DCHECK (pdata->cb_ != NULL && pdata->env_ != NULL);
   if (pdata->rc_ != 0) {
     pdata->cb_.Call(pdata->env_.Global(), {pdata->env_.Null(), Napi::String::New(pdata->env_, pdata->errmsg_)});
     delete pdata;
@@ -85,7 +85,7 @@ void WrappedVsam::ReadComplete(uv_work_t* req, int status) {
   Napi::Object record = Napi::Object::New(pdata->env_);
   const char *recbuf = pdata->recbuf_;
   VsamFile *obj = pdata->pVsamFile_;
-  assert(obj != NULL);
+  DCHECK (obj != NULL);
   std::vector<LayoutItem>& layout = obj->getLayout();
 
   for(auto i = layout.begin(); i != layout.end(); ++i) {
@@ -109,7 +109,7 @@ void WrappedVsam::ReadComplete(uv_work_t* req, int status) {
 void WrappedVsam::FindExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
   VsamFile* obj = pdata->pVsamFile_;
-  assert (obj != NULL);
+  DCHECK (obj != NULL);
   obj->FindExecute(pdata);
 }
 
@@ -117,7 +117,7 @@ void WrappedVsam::FindExecute(uv_work_t* req) {
 void WrappedVsam::ReadExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
   VsamFile* obj = pdata->pVsamFile_;
-  assert (obj != NULL);
+  DCHECK (obj != NULL);
   obj->ReadExecute(pdata);
 }
 
@@ -125,7 +125,7 @@ void WrappedVsam::ReadExecute(uv_work_t* req) {
 void WrappedVsam::DeleteExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
   VsamFile* obj = pdata->pVsamFile_;
-  assert (obj != NULL);
+  DCHECK (obj != NULL);
   obj->DeleteExecute(pdata);
 }
 
@@ -133,7 +133,7 @@ void WrappedVsam::DeleteExecute(uv_work_t* req) {
 void WrappedVsam::WriteExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
   VsamFile* obj = pdata->pVsamFile_;
-  assert (obj != NULL);
+  DCHECK (obj != NULL);
   obj->WriteExecute(pdata);
 }
 
@@ -141,15 +141,15 @@ void WrappedVsam::WriteExecute(uv_work_t* req) {
 void WrappedVsam::UpdateExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
   VsamFile* obj = pdata->pVsamFile_;
-  assert (obj != NULL);
+  DCHECK (obj != NULL);
   obj->UpdateExecute(pdata);
 }
 
 
 void WrappedVsam::DeallocExecute(uv_work_t* req) {
   UvWorkData *pdata = (UvWorkData*)(req->data);
-  assert (pdata->pVsamFile_ == NULL);
-  assert (pdata->path_.length() > 0);
+  DCHECK (pdata->pVsamFile_ == NULL);
+  DCHECK (pdata->path_.length() > 0);
   VsamFile::DeallocExecute(pdata);
 }
 
@@ -293,7 +293,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo& info, bool alloc) 
   }
 
   const Napi::Object& item = schema.Get(properties.Get(key_i)).As<Napi::Object>();
-  assert (!item.IsEmpty());
+  DCHECK (!item.IsEmpty());
   if (item.Has("minLength")) {
     const Napi::Value& vminLength = item.Get(Napi::String::New(env,"minLength"));
     if (vminLength.ToNumber().Int32Value() == 0) {
@@ -396,7 +396,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
   const Napi::Object& record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char*)malloc(reclen);
-  assert(recbuf != NULL && reclen > 0);
+  DCHECK (recbuf != NULL && reclen > 0);
   memset(recbuf, 0, reclen);
   char* fldbuf = recbuf;
   std::vector<LayoutItem>& layout = pVsamFile_->getLayout();
@@ -411,8 +411,8 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
           return;
         }
-        assert(str.length() <= i->maxLength);
-        assert((fldbuf - recbuf) + str.length() <= reclen);
+        DCHECK (str.length() <= i->maxLength);
+        DCHECK ((fldbuf - recbuf) + str.length() <= reclen);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
@@ -420,7 +420,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo& info) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
           return;
         }
-        assert((fldbuf - recbuf) + i->maxLength <= reclen);
+        DCHECK ((fldbuf - recbuf) + i->maxLength <= reclen);
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
     } else {
@@ -447,7 +447,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo& info) {
   const Napi::Object& record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char*)malloc(reclen);
-  assert(recbuf != NULL);
+  DCHECK (recbuf != NULL);
   memset(recbuf, 0, reclen);
   char* fldbuf = recbuf;
   std::vector<LayoutItem>& layout = pVsamFile_->getLayout();
@@ -462,7 +462,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo& info) {
           Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
           return;
         }
-        assert(str.length() <= i->maxLength);
+        DCHECK (str.length() <= i->maxLength);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
@@ -555,9 +555,9 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
         Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
         return;
       }
-      assert(keybuf_len > 0);
+      DCHECK (keybuf_len > 0);
       keybuf = (char*)malloc(keybuf_len);
-      assert(keybuf != NULL);
+      DCHECK (keybuf != NULL);
       memcpy(keybuf, buf, keybuf_len);
       callbackArg = 2;
     } else {
@@ -571,7 +571,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
       } else if (callbackArg==2) {
         strcpy(err,"Error: find() thrid argument must be a function.");
       } else {
-        assert(0);
+        DCHECK (0);
       }
       Napi::Error::New(info.Env(),err).ThrowAsJavaScriptException();
       return;
@@ -583,7 +583,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
     else if (equality == __KEY_FIRST)
       fprintf(stderr,"Find() line %d: equality=__KEY_FIRST\n",__LINE__);
     else
-      assert(0);
+      DCHECK (0);
 #endif
     if (info.Length() < 1) {
       Napi::Error::New(info.Env(), "Error: find() wrong number of arguments; one argument expected.").ThrowAsJavaScriptException();
@@ -607,7 +607,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo& info, int equality) {
         fprintf(stderr,"%x ",keybuf[i]);
       fprintf(stderr,"\n");
     } else
-      assert(0);
+      DCHECK (0);
   }
 #endif
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", 0, key, keybuf, keybuf_len, equality);
@@ -639,7 +639,7 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo& info) {
     Napi::Error::New(info.Env(), "Error: cannot dealloc an open VSAM dataset.").ThrowAsJavaScriptException();
     return;
   }
-  assert (pVsamFile_ == NULL);
+  DCHECK (pVsamFile_ == NULL);
   uv_work_t* request = new uv_work_t;
   Napi::Function cb = info[0].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), path_);

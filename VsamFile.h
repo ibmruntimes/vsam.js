@@ -8,6 +8,21 @@
 #include <napi.h>
 #include <string>
 
+#ifdef DEBUG
+#define DCHECK_WITH_MSG(condition, message)         \
+  do {                                              \
+    if (!(condition)) {                             \
+      fprintf(stderr,"Fatal error in %s line %d:\n" \
+                     "Debug check failed: %s\n",    \
+                     __FILE__, __LINE__, message);  \
+      exit(-1);                                     \
+    }                                               \
+  } while (0)
+#define DCHECK(condition) DCHECK_WITH_MSG(condition, #condition)
+#else
+#define DCHECK(condition) ((void) 0)
+#endif
+
 struct LayoutItem {
   enum DataType {
     STRING,

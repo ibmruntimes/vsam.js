@@ -39,7 +39,6 @@ function readUntilEnd(file, done) {
     }
   );
 }
-
 describe("Key Sequenced Dataset #2", function() {
   before(function() {
     if (vsam.exist(testSet)) {
@@ -250,25 +249,25 @@ describe("Key Sequenced Dataset #2", function() {
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
     file.find(keybuf, keybuf.length, (record, err) => {
       assert.ifError(err);
-      assert.equal(record.key, "a1b2c3d4", "1. record has been created");
+      assert.equal(record.key, "a1b2c3d4", "record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
       assert.equal(record.amount, "1234", "created record has correct amount");
 
       file.findlast((record, err) => {
         assert.ifError(err);
-        assert.equal(record.key, "e5f6789afabcd0", "2. record has been created (trailing 0 retained)");
+        assert.equal(record.key, "e5f6789afabcd0", "record has been created (trailing 0 retained)");
         assert.equal(record.name, "JIM", "created record has correct name");
         assert.equal(record.amount, "9876543210", "created record has correct amount");
 
         file.findfirst((record, err) => {
           assert.ifError(err);
-          assert.equal(record.key, "a1b2c3d4", "3. record has been created");
+          assert.equal(record.key, "a1b2c3d4", "record has been created");
           assert.equal(record.name, "JOHN", "created record has correct name");
           assert.equal(record.amount, "1234", "created record has correct amount");
         
           file.findge("43b2c3d0", (record, err) => {
             assert.ifError(err);
-            assert.equal(record.key, "a1b2c3d4", "4. record has been created");
+            assert.equal(record.key, "a1b2c3d4", "record has been created");
             assert.equal(record.name, "JOHN", "created record has correct name");
             assert.equal(record.amount, "1234", "created record has correct amount");
             expect(file.close()).to.not.throw;
@@ -291,9 +290,30 @@ describe("Key Sequenced Dataset #2", function() {
         assert.ifError(err);
         file.find("e5f6789afabc", (record, err) => {
           assert.ifError(err);
-          assert.equal(record.key, "e5f6789afabc", "5. record has been created (00 truncated)");
-          assert.equal(record.name, "JANE", "5. created record has correct name");
-          assert.equal(record.amount, "4187832145", "5. created record has correct amount");
+          assert.equal(record.key, "e5f6789afabc", "record has been created (00 truncated)");
+          assert.equal(record.name, "JANE", "created record has correct name");
+          assert.equal(record.amount, "4187832145", "created record has correct amount");
+          expect(file.close()).to.not.throw;
+          done();
+        });
+      });
+    });
+  });
+
+  it("write new record with max fields' lengths including 0's", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    file.read((record, err) => {
+      record.key = "A900B2F4fabc00e9";
+      record.name = "M Name TCD";
+      record.amount = "A1b2c3D4F6000090";
+      file.write(record, (err) => {
+        assert.ifError(err);
+        file.find("a900b2F4fabc00E9", (record, err) => {
+          assert.ifError(err);
+          assert.equal(record.key, "a900b2f4fabc00e9", "record has been created");
+          assert.equal(record.name, "M Name TCD", "created record has correct name");
+          assert.equal(record.amount, "a1b2c3d4f6000090", "created record has correct amount");
           expect(file.close()).to.not.throw;
           done();
         });
@@ -308,7 +328,7 @@ describe("Key Sequenced Dataset #2", function() {
     const keybuf = Buffer.from([0xA1, 0xB2, 0xc3, 0xD4]);
     file.find(keybuf, keybuf.length, (record, err) => {
       assert.ifError(err);
-      assert.equal(record.key, "a1b2c3d4", "1. record has been created");
+      assert.equal(record.key, "a1b2c3d4", "record has been created");
       assert.equal(record.name, "JOHN", "created record has correct name");
       assert.equal(record.amount, "1234", "created record has correct amount");
       file.delete( (err) => {

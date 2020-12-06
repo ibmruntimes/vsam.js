@@ -10,6 +10,10 @@
 #include <sstream>
 #include <unistd.h>
 
+#ifdef DEBUG
+int gettid() { return (int)(pthread_self().__ & 0x7fffffff); }
+#endif
+
 static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
                                    const char *title);
 
@@ -33,11 +37,11 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
     buflen = pdata->keybuf_len_;
 #ifdef DEBUG
     fprintf(stderr,
-            "Line %d: key_layout.maxLength=%d, pdata->keybuf_len_=%d, "
+            "FindExecute key_layout.maxLength=%d, pdata->keybuf_len_=%d, "
             "buflen=%d, buf=",
-            __LINE__, key_layout.maxLength, pdata->keybuf_len_, buflen);
+            key_layout.maxLength, pdata->keybuf_len_, buflen);
     for (int i = 0; i < buflen; i++)
-      fprintf(stderr, "%x ", buf[i]);
+      fprintf(stderr, "%02x ", buf[i]);
     fprintf(stderr, "\n");
 #endif
   } else if (pdata->equality_ != __KEY_FIRST &&
@@ -49,23 +53,28 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
       char buf[key_layout.maxLength];
       buflen = hexstrToBuffer(buf, sizeof(buf), pdata->keystr_.c_str());
 #ifdef DEBUG
-      fprintf(stderr,
-              "Line %d: user string=<%s>, key_layout.maxLength=%d, keylen_=%d, "
-              "buf=",
-              __LINE__, pdata->keystr_.c_str(), key_layout.maxLength, keylen_);
+      fprintf(
+          stderr,
+          "FindExecute user string=<%s>, key_layout.maxLength=%d, keylen_=%d, "
+          "flocate(): stream=%p, tid=%d, buflen=%d, equality=%d, buf=",
+          pdata->keystr_.c_str(), key_layout.maxLength, keylen_, stream_,
+          gettid(), buflen, pdata->equality_);
       for (int i = 0; i < buflen; i++)
-        fprintf(stderr, "%x ", buf[i]);
+        fprintf(stderr, "%02x ", buf[i]);
       fprintf(stderr, "\n");
 #endif
       pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
+#ifdef DEBUG
+      fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
+#endif
       goto chk;
     } else {
       buf = pdata->keystr_.c_str();
       buflen = pdata->keystr_.length();
 #ifdef DEBUG
-      fprintf(stderr, "Line %d: keylen_=%d, buf=", __LINE__, keylen_);
+      fprintf(stderr, "FindExecute keylen_=%d, buf=", keylen_);
       for (int i = 0; i < buflen; i++)
-        fprintf(stderr, "%x ", buf[i]);
+        fprintf(stderr, "%02x ", buf[i]);
       fprintf(stderr, "\n");
 #endif
     }
@@ -73,8 +82,19 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
     buflen = key_layout.maxLength;
 
   DCHECK(buflen <= key_layout.maxLength);
+#ifdef DEBUG
+  fprintf(stderr,
+          "FindExecute flocate(): stream=%p, tid=%d, buflen=%d,  equality_=%d, "
+          "buf=",
+          stream_, gettid(), buflen, pdata->equality_);
+  for (int i = 0; i < buflen; i++)
+    fprintf(stderr, "%02x ", buf[i]);
+  fprintf(stderr, "\n");
+#endif
   pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
-
+#ifdef DEBUG
+  fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
+#endif
 chk:
   if (pdata->rc_ == 0) {
     DCHECK(pdata->recbuf_ == NULL);
@@ -83,9 +103,9 @@ chk:
     int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
     if (nread == 1) {
 #ifdef DEBUG
-      fprintf(stderr, "Line %d: reclen_=%d, fread=", __LINE__, reclen_);
+      fprintf(stderr, "FindExecute reclen_=%d, fread=", reclen_);
       for (int i = 0; i < reclen_; i++)
-        fprintf(stderr, "%x ", pdata->recbuf_[i]);
+        fprintf(stderr, "%02x ", pdata->recbuf_[i]);
       fprintf(stderr, "\n");
 #endif
       return;
@@ -102,7 +122,14 @@ chk:
 void VsamFile::ReadExecute(UvWorkData *pdata) {
   pdata->recbuf_ = (char *)malloc(reclen_);
   DCHECK(pdata->recbuf_ != NULL);
+#ifdef DEBUG
+  fprintf(stderr, "ReadExecute fread() %d bytes from tid=%d\n", reclen_,
+          gettid());
+#endif
   int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
+#ifdef DEBUG
+  fprintf(stderr, "ReadExecute fread() read %d elements\n", nread);
+#endif
   if (nread == 1)
     return;
   free(pdata->recbuf_);
@@ -117,19 +144,40 @@ void VsamFile::DeleteExecute(UvWorkData *pdata) {
 
 void VsamFile::WriteExecute(UvWorkData *pdata) {
   DCHECK(pdata->recbuf_ != NULL);
-  int nelem = fwrite(pdata->recbuf_, reclen_, 1, stream_);
-  if (nelem != 1) {
+#ifdef DEBUG
+  fprintf(stderr, "WriteExecute fwrite() to %p, tid=%d, reclen=%d: ", stream_,
+          gettid(), reclen_);
+  for (int i = 0; i < reclen_; i++)
+    fprintf(stderr, "%02x ", pdata->recbuf_[i]);
+  fprintf(stderr, "\n");
+#endif
+  int nelem = fwrite(pdata->recbuf_, 1, reclen_, stream_);
+#ifdef DEBUG
+  fprintf(stderr, "WriteExecute fwrite() wrote %d bytes\n", nelem);
+#endif
+  if (nelem != reclen_) {
     pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: write() failed");
+    return;
   }
 }
 
 void VsamFile::UpdateExecute(UvWorkData *pdata) {
   DCHECK(pdata->recbuf_ != NULL);
+#ifdef DEBUG
+  fprintf(stderr, "UpdateExecute fupdate() to %p, tid=%d: ", stream_, gettid());
+  for (int i = 0; i < reclen_; i++)
+    fprintf(stderr, "%02x ", pdata->recbuf_[i]);
+  fprintf(stderr, "\n");
+#endif
   int nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
+#ifdef DEBUG
+  fprintf(stderr, "UpdateExecute fupdate() wrote %d bytes\n", nbytes);
+#endif
   if (nbytes != reclen_) {
     pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: update() failed");
+    return;
   }
 }
 
@@ -137,7 +185,13 @@ void VsamFile::UpdateExecute(UvWorkData *pdata) {
 void VsamFile::DeallocExecute(UvWorkData *pdata) {
   DCHECK(pdata->path_.length() > 0);
   std::string dataset = formatDatasetName(pdata->path_);
+#ifdef DEBUG
+  fprintf(stderr, "DeallocExecute remove() from tid=%d", gettid());
+#endif
   pdata->rc_ = remove(dataset.c_str());
+#ifdef DEBUG
+  fprintf(stderr, "DeallocExecute remove() returned %d", pdata->rc_);
+#endif
   if (pdata->rc_ != 0)
     createErrorMsg(pdata->errmsg_, errno, __errno2(),
                    "Error: dealloc() failed");
@@ -157,12 +211,20 @@ std::string VsamFile::formatDatasetName(const std::string &path) {
 bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
   std::string dataset = formatDatasetName(path);
   FILE *stream = fopen(dataset.c_str(), "rb,type=record");
+#ifdef DEBUG
+  fprintf(stderr,
+          "isDatasetExist() fopen(%s, rb,type=record) returned %p, tid=%d\n",
+          dataset.c_str(), stream, gettid());
+#endif
   int err2 = __errno2();
   if (perr)
     *perr = errno;
   if (perr2)
     *perr2 = err2;
   if (stream != NULL) {
+#ifdef DEBUG
+    fprintf(stderr, "isDatasetExist() fclose(%p)\n", stream);
+#endif
     fclose(stream);
     return true;
   }
@@ -174,6 +236,11 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
     // 0xC00A0022 could be if opening an empty dataset as read-only,
     // double-check:
     stream = fopen(dataset.c_str(), "rb+,type=record");
+#ifdef DEBUG
+    fprintf(stderr,
+            "isDatasetExist fopen(%s, ab+,type=record) returned %p, tid=%d\n",
+            dataset.c_str(), stream, gettid());
+#endif
     if (perr)
       *perr = errno;
     if (perr2)
@@ -181,6 +248,9 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
     if (stream == NULL) {
       return false;
     }
+#ifdef DEBUG
+    fprintf(stderr, "isDatasetExist fclose(%p)\n", stream);
+#endif
     fclose(stream);
     return true;
   }
@@ -200,6 +270,10 @@ VsamFile::VsamFile(const std::string &path,
   std::string dsname = formatDatasetName(path_);
   if (!alloc) {
     stream_ = fopen(dsname.c_str(), omode_.c_str());
+#ifdef DEBUG
+    fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
+            dsname.c_str(), omode_.c_str(), stream_, gettid());
+#endif
     int err = errno;
     int err2 = __errno2();
 
@@ -209,8 +283,7 @@ VsamFile::VsamFile(const std::string &path,
       return;
     }
 #ifdef DEBUG
-    fprintf(stderr,
-            "In VsamFile constructor: VSAM dataset opened successfully.\n");
+    fprintf(stderr, "VsamFile: VSAM dataset opened successfully.\n");
 #endif
   } else {
     int err, err2;
@@ -245,14 +318,19 @@ VsamFile::VsamFile(const std::string &path,
       return;
     }
     stream_ = fopen(dsname.c_str(), "ab+,type=record");
+#ifdef DEBUG
+    fprintf(stderr,
+            "VsamFile: fopen(%s, ab+,type=record) returned %p, tid=%d\n",
+            dsname.c_str(), stream_, gettid());
+#endif
     if (stream_ == NULL) {
       createErrorMsg(errmsg_, errno, __errno2(),
                      "Error: failed to open new dataset");
       return;
     }
 #ifdef DEBUG
-    fprintf(stderr, "In VsamFile constructor: VSAM dataset created and opened "
-                    "successfully.\n");
+    fprintf(stderr,
+            "VsamFile: VSAM dataset created and opened successfully.\n");
 #endif
   }
 
@@ -264,11 +342,11 @@ VsamFile::VsamFile(const std::string &path,
     errmsg_ = "Error: key length " + std::to_string(keylen_) +
               " doesn't match length " +
               std::to_string(layout_[key_i_].maxLength) + " in schema.";
+#ifdef DEBUG
+    fprintf(stderr, "VsamFile: fclose(%p)\n", stream_);
+#endif
     fclose(stream_);
     stream_ = NULL;
-#ifdef DEBUG
-    fprintf(stderr, "In VsamFile constructor: %s\n", errmsg_.c_str());
-#endif
     return;
   }
   rc_ = 0;
@@ -276,10 +354,12 @@ VsamFile::VsamFile(const std::string &path,
 
 VsamFile::~VsamFile() {
 #ifdef DEBUG
-  fprintf(stderr, "In VsamFile destructor this=%p, stream_=%p.\n", this,
-          stream_);
+  fprintf(stderr, "~VsamFile: this=%p, stream_=%p.\n", this, stream_);
 #endif
   if (stream_ != NULL) {
+#ifdef DEBUG
+    fprintf(stderr, "~VsamFile: fclose(%p)\n", stream_);
+#endif
     fclose(stream_);
     stream_ = NULL;
   }
@@ -291,6 +371,9 @@ int VsamFile::Close(std::string &errmsg) {
     errmsg = "VSAM dataset is not open.";
     return 1;
   }
+#ifdef DEBUG
+  fprintf(stderr, "Close(): fclose(%p)\n", stream_);
+#endif
   if (fclose(stream_)) {
     createErrorMsg(errmsg, errno, __errno2(),
                    "Error: failed to close VSAM dataset");

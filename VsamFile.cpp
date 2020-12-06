@@ -455,8 +455,6 @@ Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
   VsamFile* p = Napi::ObjectWrap<VsamFile>::Unwrap(obj);
   if (p->lastrc_) {
     Napi::Error::New(env, p->errmsg_.c_str()).ThrowAsJavaScriptException();
-    delete p;
-    return env.Null();
   }
   return obj;
 }

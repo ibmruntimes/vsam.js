@@ -10,6 +10,10 @@
 #include <sstream>
 #include <numeric>
 
+#ifdef DEBUG
+int gettid() { return (int)(pthread_self().__ & 0x7fffffff); }
+#endif
+
 Napi::FunctionReference VsamFile::constructor_;
 
 static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr);
@@ -122,14 +126,26 @@ void VsamFile::Find(uv_work_t* req) {
     if (key_layout.type == LayoutItem::HEXADECIMAL) {
       char buf[key_layout.maxLength+1];
       hexstrToBuffer(buf, sizeof(buf), obj->key_.c_str());
+#ifdef DEBUG
+      fprintf(stderr,"DBG flocate from tid %d ...", gettid());
+#endif
       rc = flocate(obj->stream_, buf, obj->keylen_, obj->equality_);
+#ifdef DEBUG
+      fprintf(stderr,"flocate from tid %d done.\n", gettid());
+#endif
       goto chk;
     } else {
       buf = obj->key_.c_str();
       buflen = obj->keylen_;
     }
   }
+#ifdef DEBUG
+  fprintf(stderr,"DBG flocate from tid %d ...", gettid());
+#endif
   rc = flocate(obj->stream_, buf, buflen, obj->equality_);
+#ifdef DEBUG
+  fprintf(stderr,"flocate from tid %d done.\n", gettid());
+#endif
 
 chk: 
   if (rc==0) {
@@ -180,13 +196,25 @@ void VsamFile::Read(uv_work_t* req) {
 
 void VsamFile::Delete(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
+#ifdef DEBUG
+  fprintf(stderr,"DBG fdelrec from tid %d ...", gettid());
+#endif
   obj->lastrc_ = fdelrec(obj->stream_);
+#ifdef DEBUG
+  fprintf(stderr,"fdelrec from tid %d done.\n", gettid());
+#endif
 }
 
 
 void VsamFile::Write(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
+#ifdef DEBUG
+  fprintf(stderr,"DBG fwrite from tid %d ...", gettid());
+#endif
   obj->lastrc_ = fwrite(obj->buf_, 1, obj->reclen_, obj->stream_);
+#ifdef DEBUG
+  fprintf(stderr,"fwrite from tid %d done.\n", gettid());
+#endif
   if (obj->buf_) {
     free(obj->buf_);
     obj->buf_ = NULL;
@@ -200,7 +228,13 @@ void VsamFile::Write(uv_work_t* req) {
 
 void VsamFile::Update(uv_work_t* req) {
   VsamFile* obj = (VsamFile*)(req->data);
+#ifdef DEBUG
+  fprintf(stderr,"DBG fupdate from tid %d ...", gettid());
+#endif
   int ret = fupdate(obj->buf_, obj->reclen_, obj->stream_);
+#ifdef DEBUG
+  fprintf(stderr,"fupdate from tid %d done.\n", gettid());
+#endif
   if (ret == 0) {
     //TODO: error
   }
@@ -311,7 +345,13 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
   dataset << "//'" << path_.c_str() << "'";
 
   if (!alloc) {
+#ifdef DEBUG
+    fprintf(stderr,"DBG fopen from tid %d ...", gettid());
+#endif
     stream_ = fopen(dataset.str().c_str(), omode_.c_str());
+#ifdef DEBUG
+    fprintf(stderr,"fopen from tid %d done.\n", gettid());
+#endif
     err = errno;
     err2 = __errno2();
 
@@ -346,7 +386,13 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
       errmsg_ = "Failed to allocate dataset";
       return;
     }
+#ifdef DEBUG
+    fprintf(stderr,"DBG fopen from tid %d ...", gettid());
+#endif
     stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
+#ifdef DEBUG
+    fprintf(stderr,"fopen from tid %d done.\n", gettid());
+#endif
     if (stream_ == NULL) {
       createErrorMsg(errmsg_, errno, __errno2(), "Failed to open new dataset");
       return;
@@ -368,8 +414,16 @@ VsamFile::VsamFile(const Napi::CallbackInfo& info)
 
 
 VsamFile::~VsamFile() {
-  if (stream_ != NULL)
+  if (stream_ != NULL) {
+#ifdef DEBUG
+    fprintf(stderr,"DBG ~VsamFile fclose from tid %d...", gettid());
     fclose(stream_);
+  fprintf(stderr,"fclose from tid %d done.\n", gettid());
+#else
+    fclose(stream_);
+#endif
+  }
+
 }
 
 
@@ -508,11 +562,16 @@ void VsamFile::Close(const Napi::CallbackInfo& args) {
     Napi::Error::New(env_, "VSAM file is not open.").ThrowAsJavaScriptException();
     return;
   }
-
+#ifdef DEBUG
+  fprintf(stderr,"DBG Close fclose from tid %d...", gettid());
+#endif
   if (fclose(stream_)) {
     Napi::Error::New(env_, "Error closing file.").ThrowAsJavaScriptException();
     return;
   }
+#ifdef DEBUG
+  fprintf(stderr,"fclose from tid %d done.\n", gettid());
+#endif
   stream_ = NULL;
 }
 

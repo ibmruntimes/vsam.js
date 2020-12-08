@@ -75,8 +75,11 @@ struct UvWorkData {
 class VsamFile {
 public:
   VsamFile(const std::string &path, const std::vector<LayoutItem> &layout,
-           int key_i, const std::string &omode, bool alloc);
+           int key_i, const std::string &omode);
   ~VsamFile();
+
+  void open();
+  void alloc();
 
   int getKeyNum() const { return key_i_; }
   int getRecordLength() const { return reclen_; }
@@ -111,6 +114,9 @@ public:
   void UpdateExecute(UvWorkData *pdata);
   void WriteExecute(UvWorkData *pdata);
   void DeleteExecute(UvWorkData *pdata);
+
+private:
+  int setKeyRecordLengths();
 
 private:
   FILE *stream_;

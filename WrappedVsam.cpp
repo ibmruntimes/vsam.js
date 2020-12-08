@@ -165,11 +165,15 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
       static_cast<std::string>(info[3].As<Napi::String>());
   bool alloc(static_cast<bool>(info[4].As<Napi::Boolean>()));
 
-  pVsamFile_ = new VsamFile(path_, layout, key_i, omode, alloc);
+  pVsamFile_ = new VsamFile(path_, layout, key_i, omode);
 #if defined(DEBUG) || defined(XDEBUG)
   fprintf(stderr, "WrappedVsam this=%p created pVsamFile_=%p\n", this,
           pVsamFile_);
 #endif
+  if (alloc)
+    pVsamFile_->alloc();
+  else
+    pVsamFile_->open();
 }
 
 WrappedVsam::~WrappedVsam() {
@@ -346,8 +350,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         .ThrowAsJavaScriptException();
     if (p && p->pVsamFile_) {
 #ifdef DEBUG
-      fprintf(stderr, "Line %d: delete pVsamFile_ %p\n", __LINE__,
-              p->pVsamFile_);
+      fprintf(stderr, "Construct(): delete pVsamFile_ %p\n", p->pVsamFile_);
 #endif
       delete p->pVsamFile_;
       p->pVsamFile_ = NULL;

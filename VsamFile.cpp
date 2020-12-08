@@ -257,99 +257,107 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
   return false;
 }
 
-VsamFile::VsamFile(const std::string &path,
-                   const std::vector<LayoutItem> &layout, int key_i,
-                   const std::string &omode, bool alloc)
-    : path_(path), layout_(layout), key_i_(key_i), omode_(omode), stream_(NULL),
-      keylen_(0), rc_(1) {
-
-#ifdef DEBUG
-  fprintf(stderr, "In VsamFile constructor for %s.\n", path_.c_str());
-#endif
-
+void VsamFile::open() {
+  rc_ = -1;
   std::string dsname = formatDatasetName(path_);
-  if (!alloc) {
-    stream_ = fopen(dsname.c_str(), omode_.c_str());
+  DCHECK(stream_ == NULL);
+  stream_ = fopen(dsname.c_str(), omode_.c_str());
 #ifdef DEBUG
-    fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
-            dsname.c_str(), omode_.c_str(), stream_, gettid());
+  fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
+          dsname.c_str(), omode_.c_str(), stream_, gettid());
 #endif
-    int err = errno;
-    int err2 = __errno2();
+  int err = errno;
+  int err2 = __errno2();
 
-    if (stream_ == NULL) {
-      createErrorMsg(errmsg_, errno, __errno2(),
-                     "Error: failed to open dataset");
-      return;
-    }
-#ifdef DEBUG
-    fprintf(stderr, "VsamFile: VSAM dataset opened successfully.\n");
-#endif
-  } else {
-    int err, err2;
-    if (isDatasetExist(dsname.c_str(), &err, &err2)) {
-      errmsg_ = "Dataset already exists";
-      return;
-    }
-    if (err2 != 0xC00B0641) {
-      // 0xC00B0641 is file not found
-      createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
-      return;
-    }
-
-    std::ostringstream ddname;
-    ddname << "NAMEDD";
-
-    __dyn_t dyn;
-    dyninit(&dyn);
-    dyn.__dsname = &(path_[0]);
-    dyn.__ddname = &(ddname.str()[0]);
-    dyn.__normdisp = __DISP_CATLG;
-    dyn.__lrecl = std::accumulate(
-        layout_.begin(), layout_.end(), 0,
-        [](int n, LayoutItem &l) -> int { return n + l.maxLength; });
-    dyn.__keyoffset = std::accumulate(
-        layout_.begin(), layout_.begin() + key_i_, 0,
-        [](int n, LayoutItem &l) -> int { return n + l.maxLength; });
-    dyn.__keylength = layout_[key_i_].maxLength;
-    dyn.__recorg = __KS;
-    if (dynalloc(&dyn) != 0) {
-      createErrorMsg(errmsg_, err, err2, "Failed to allocate dataset");
-      return;
-    }
-    stream_ = fopen(dsname.c_str(), "ab+,type=record");
-#ifdef DEBUG
-    fprintf(stderr,
-            "VsamFile: fopen(%s, ab+,type=record) returned %p, tid=%d\n",
-            dsname.c_str(), stream_, gettid());
-#endif
-    if (stream_ == NULL) {
-      createErrorMsg(errmsg_, errno, __errno2(),
-                     "Error: failed to open new dataset");
-      return;
-    }
-#ifdef DEBUG
-    fprintf(stderr,
-            "VsamFile: VSAM dataset created and opened successfully.\n");
-#endif
+  if (stream_ == NULL) {
+    createErrorMsg(errmsg_, errno, __errno2(), "Error: failed to open dataset");
+    return;
   }
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: VSAM dataset opened successfully.\n");
+#endif
+  rc_ = setKeyRecordLengths();
+}
 
+void VsamFile::alloc() {
+  rc_ = -1;
+  int err, err2;
+  std::string dsname = formatDatasetName(path_);
+  if (isDatasetExist(dsname.c_str(), &err, &err2)) {
+    errmsg_ = "Dataset already exists";
+    return;
+  }
+  if (err2 != 0xC00B0641) {
+    // 0xC00B0641 is file not found
+    createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
+    return;
+  }
+  std::ostringstream ddname;
+  ddname << "NAMEDD";
+
+  __dyn_t dyn;
+  dyninit(&dyn);
+  dyn.__dsname = &(path_[0]);
+  dyn.__ddname = &(ddname.str()[0]);
+  dyn.__normdisp = __DISP_CATLG;
+  dyn.__lrecl = std::accumulate(
+      layout_.begin(), layout_.end(), 0,
+      [](int n, LayoutItem &l) -> int { return n + l.maxLength; });
+  dyn.__keyoffset = std::accumulate(
+      layout_.begin(), layout_.begin() + key_i_, 0,
+      [](int n, LayoutItem &l) -> int { return n + l.maxLength; });
+  dyn.__keylength = layout_[key_i_].maxLength;
+  dyn.__recorg = __KS;
+  if (dynalloc(&dyn) != 0) {
+    createErrorMsg(errmsg_, err, err2, "Failed to allocate dataset");
+    return;
+  }
+  stream_ = fopen(dsname.c_str(), "ab+,type=record");
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: fopen(%s, ab+,type=record) returned %p, tid=%d\n",
+          dsname.c_str(), stream_, gettid());
+#endif
+  if (stream_ == NULL) {
+    createErrorMsg(errmsg_, errno, __errno2(),
+                   "Error: failed to open new dataset");
+    return;
+  }
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: VSAM dataset created and opened successfully.\n");
+#endif
+  rc_ = setKeyRecordLengths();
+}
+
+int VsamFile::setKeyRecordLengths() {
+  DCHECK(stream_ != NULL);
   fldata_t dinfo;
   fldata(stream_, NULL, &dinfo);
   keylen_ = dinfo.__vsamkeylen;
   reclen_ = dinfo.__maxreclen;
-  if (keylen_ != layout_[key_i_].maxLength) {
-    errmsg_ = "Error: key length " + std::to_string(keylen_) +
-              " doesn't match length " +
-              std::to_string(layout_[key_i_].maxLength) + " in schema.";
+  if (keylen_ == layout_[key_i_].maxLength)
+    return 0;
+
+  errmsg_ = "Error: key length " + std::to_string(keylen_) +
+            " doesn't match length " +
+            std::to_string(layout_[key_i_].maxLength) + " in schema.";
 #ifdef DEBUG
-    fprintf(stderr, "VsamFile: fclose(%p)\n", stream_);
+  fprintf(stderr, "VsamFile: fclose(%p)\n", stream_);
 #endif
-    fclose(stream_);
-    stream_ = NULL;
-    return;
-  }
-  rc_ = 0;
+  fclose(stream_);
+  stream_ = NULL;
+  return -1;
+}
+
+VsamFile::VsamFile(const std::string &path,
+                   const std::vector<LayoutItem> &layout, int key_i,
+                   const std::string &omode)
+    : path_(path), layout_(layout), key_i_(key_i), omode_(omode), stream_(NULL),
+      keylen_(0), rc_(1) {
+#ifdef DEBUG
+  fprintf(stderr, "In VsamFile constructor for %s.\n", path_.c_str());
+#endif
+  // open() or alloc() should be called directly by WrappedVsam that created
+  // this.
 }
 
 VsamFile::~VsamFile() {

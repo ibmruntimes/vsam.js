@@ -180,7 +180,7 @@ describe("Key Sequenced Dataset #2", function() {
     done();
   });
 
-  it("write new record, provide key as Buffer.toString('hex')", function(done) {
+  it("write record on empty dataset and find it)", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
@@ -191,8 +191,14 @@ describe("Key Sequenced Dataset #2", function() {
     };
     file.write(record, (err) => {
       assert.ifError(err);
-      expect(file.close()).to.not.throw;
-      done();
+      file.find(keybuf, keybuf.length, (record, err) => {
+        assert.ifError(err);
+        assert.equal(record.key, "a1b2c3d4", "record has been created");
+        assert.equal(record.name, "JOHN", "created record has correct name");
+        assert.equal(record.amount, "1234", "created record has correct amount");
+        expect(file.close()).to.not.throw;
+        done();
+      });
     });
   });
 
@@ -243,7 +249,7 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("find existing record using Buffer and hexadecimal string as key, and verify data", function(done) {
+  it("verify find, findlast, findfirst, findge followed by a bunch of write/update/find/delete", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
@@ -264,14 +270,66 @@ describe("Key Sequenced Dataset #2", function() {
           assert.equal(record.key, "a1b2c3d4", "record has been created");
           assert.equal(record.name, "JOHN", "created record has correct name");
           assert.equal(record.amount, "1234", "created record has correct amount");
-        
+
           file.findge("43b2c3d0", (record, err) => {
             assert.ifError(err);
             assert.equal(record.key, "a1b2c3d4", "record has been created");
             assert.equal(record.name, "JOHN", "created record has correct name");
             assert.equal(record.amount, "1234", "created record has correct amount");
-            expect(file.close()).to.not.throw;
-            done();
+
+            record.key = "F1F2F3F4";
+            record.name = "TEST ";
+            file.write(record, (err) => {
+              assert.ifError(err);
+
+              file.find("F1F2F3F4", (record, err) => {
+                assert.ifError(err);
+                assert.equal(record.name, "TEST ", "created record has correct name");
+                record.name = "U  ";
+                file.update(record, (err) => {
+                  assert.ifError(err);
+                  assert.equal(record.name, "U  ", "created record has correct name");
+
+                  const keybuf = Buffer.from([0xc1, 0xd2, 0xe3, 0xf4]);
+                  record = {
+                    key: keybuf.toString('hex'),
+                    name: "MARY",
+                    amount: "999"
+                  };
+                  file.write(record, (err) => {
+                    assert.ifError(err);
+
+                    file.find(keybuf, keybuf.length, (record, err) => {
+                      assert.ifError(err);
+                      assert.equal(record.name, "MARY", "created record has correct name");
+                      record.name = "Mary Smith";
+                      file.update(record, (err) => {
+                        assert.ifError(err);
+                        assert.equal(record.name, "Mary Smith", "created record has correct name");
+
+                        file.find(keybuf, keybuf.length, (record, err) => {
+                          assert.ifError(err);
+                          assert.equal(record.name, "Mary Smith", "created record has correct name");
+
+                          file.delete( (err) => {
+                            assert.ifError(err);
+
+                            file.find("0xF1F2F3F4", (record, err) => {
+                              assert.ifError(err);
+                              file.delete( (err) => {
+                                assert.ifError(err);
+                                expect(file.close()).to.not.throw;
+                                done();
+                              });
+                            });
+                          });
+                        });
+                      });
+                    });
+                  });
+                });
+              });
+            });
           });
         });
       });
@@ -335,9 +393,9 @@ describe("Key Sequenced Dataset #2", function() {
         assert.ifError(err);
         file.find("a1b2c3d4", (record, err) => {
           assert.equal(record, null, "deleted record not found"); 
+          expect(file.close()).to.not.throw;
+          done();
         });
-        expect(file.close()).to.not.throw;
-        done();
       });
     });
   });

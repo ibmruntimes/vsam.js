@@ -10,7 +10,6 @@
 #include <queue>
 #include <thread>
 
-int gettid() { return (int)(pthread_self().__ & 0x7fffffff); }
-
+int gettid();
 void vsamThread(VsamFile *pVsamFile, std::condition_variable *pcv,
                 std::mutex *pmtx, std::queue<ST_VsamThreadMsg *> *pqueue);

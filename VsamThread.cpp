@@ -23,6 +23,10 @@ static const char *getMessageStr(VSAM_THREAD_MSGID msgid) {
 }
 #endif
 
+int gettid() {
+  return (int)(pthread_self().__ & 0x7fffffff);
+}
+
 void vsamThread(VsamFile *pVsamFile, std::condition_variable *pcv,
                 std::mutex *pmtx, std::queue<ST_VsamThreadMsg *> *pqueue) {
 #ifdef DEBUG

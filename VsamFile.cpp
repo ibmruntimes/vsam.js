@@ -5,14 +5,11 @@
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
 #include "VsamFile.h"
+#include "VsamThread.h"
 #include <dynit.h>
 #include <numeric>
 #include <sstream>
 #include <unistd.h>
-
-#ifdef DEBUG
-int gettid() { return (int)(pthread_self().__ & 0x7fffffff); }
-#endif
 
 static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
                                    const char *title);
@@ -26,6 +23,7 @@ static void print_amrc() {
 }
 
 void VsamFile::FindExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
   int rc;
   const char *buf;
   int buflen;
@@ -84,7 +82,7 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
   DCHECK(buflen <= key_layout.maxLength);
 #ifdef DEBUG
   fprintf(stderr,
-          "FindExecute flocate(): stream=%p, tid=%d, buflen=%d,  equality_=%d, "
+          "FindExecute flocate() stream=%p, tid=%d, buflen=%d,  equality_=%d, "
           "buf=",
           stream_, gettid(), buflen, pdata->equality_);
   for (int i = 0; i < buflen; i++)
@@ -120,6 +118,7 @@ chk:
 }
 
 void VsamFile::ReadExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
   pdata->recbuf_ = (char *)malloc(reclen_);
   DCHECK(pdata->recbuf_ != NULL);
 #ifdef DEBUG
@@ -130,19 +129,31 @@ void VsamFile::ReadExecute(UvWorkData *pdata) {
 #ifdef DEBUG
   fprintf(stderr, "ReadExecute fread() read %d elements\n", nread);
 #endif
-  if (nread == 1)
+  if (nread == 1) {
+    pdata->rc_ = 0;
     return;
+  }
   free(pdata->recbuf_);
   pdata->recbuf_ = NULL;
 }
 
 void VsamFile::DeleteExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+#ifdef DEBUG
+  fprintf(stderr, "DeleteExecute fdelrec() to %p, tid=%d...", stream_, gettid());
+#endif
   pdata->rc_ = fdelrec(stream_);
-  if (pdata->rc_ != 0)
+  if (pdata->rc_ != 0) {
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: delete() failed");
+    return;
+  }
+#ifdef DEBUG
+  fprintf(stderr, "fdelrec() done.\n");
+#endif
 }
 
 void VsamFile::WriteExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
   DCHECK(pdata->recbuf_ != NULL);
 #ifdef DEBUG
   fprintf(stderr, "WriteExecute fwrite() to %p, tid=%d, reclen=%d: ", stream_,
@@ -156,13 +167,14 @@ void VsamFile::WriteExecute(UvWorkData *pdata) {
   fprintf(stderr, "WriteExecute fwrite() wrote %d bytes\n", nelem);
 #endif
   if (nelem != reclen_) {
-    pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: write() failed");
     return;
   }
+  pdata->rc_ = 0;
 }
 
 void VsamFile::UpdateExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
   DCHECK(pdata->recbuf_ != NULL);
 #ifdef DEBUG
   fprintf(stderr, "UpdateExecute fupdate() to %p, tid=%d: ", stream_, gettid());
@@ -175,22 +187,23 @@ void VsamFile::UpdateExecute(UvWorkData *pdata) {
   fprintf(stderr, "UpdateExecute fupdate() wrote %d bytes\n", nbytes);
 #endif
   if (nbytes != reclen_) {
-    pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: update() failed");
     return;
   }
+  pdata->rc_ = 0;
 }
 
 // static
 void VsamFile::DeallocExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
   DCHECK(pdata->path_.length() > 0);
   std::string dataset = formatDatasetName(pdata->path_);
 #ifdef DEBUG
-  fprintf(stderr, "DeallocExecute remove() from tid=%d", gettid());
+  fprintf(stderr, "DeallocExecute remove() from tid=%d\n", gettid());
 #endif
   pdata->rc_ = remove(dataset.c_str());
 #ifdef DEBUG
-  fprintf(stderr, "DeallocExecute remove() returned %d", pdata->rc_);
+  fprintf(stderr, "DeallocExecute remove() returned %d\n", pdata->rc_);
 #endif
   if (pdata->rc_ != 0)
     createErrorMsg(pdata->errmsg_, errno, __errno2(),
@@ -213,7 +226,7 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
   FILE *stream = fopen(dataset.c_str(), "rb,type=record");
 #ifdef DEBUG
   fprintf(stderr,
-          "isDatasetExist() fopen(%s, rb,type=record) returned %p, tid=%d\n",
+          "isDatasetExist fopen(%s, rb,type=record) returned %p, tid=%d\n",
           dataset.c_str(), stream, gettid());
 #endif
   int err2 = __errno2();
@@ -257,10 +270,11 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
   return false;
 }
 
-void VsamFile::open() {
-  rc_ = -1;
-  std::string dsname = formatDatasetName(path_);
+void VsamFile::open(UvWorkData *pdata) {
+  DCHECK(rc_ != 0);
+  DCHECK(pdata == NULL);
   DCHECK(stream_ == NULL);
+  std::string dsname = formatDatasetName(path_);
   stream_ = fopen(dsname.c_str(), omode_.c_str());
 #ifdef DEBUG
   fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
@@ -273,14 +287,16 @@ void VsamFile::open() {
     createErrorMsg(errmsg_, errno, __errno2(), "Error: failed to open dataset");
     return;
   }
-#ifdef DEBUG
-  fprintf(stderr, "VsamFile: VSAM dataset opened successfully.\n");
-#endif
   rc_ = setKeyRecordLengths();
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: VSAM dataset opened rc=%d.\n", rc_);
+#endif
 }
 
-void VsamFile::alloc() {
-  rc_ = -1;
+void VsamFile::alloc(UvWorkData *pdata) {
+  DCHECK(rc_ != 0);
+  DCHECK(pdata == NULL);
+  DCHECK(stream_ == NULL);
   int err, err2;
   std::string dsname = formatDatasetName(path_);
   if (isDatasetExist(dsname.c_str(), &err, &err2)) {
@@ -322,10 +338,12 @@ void VsamFile::alloc() {
                    "Error: failed to open new dataset");
     return;
   }
-#ifdef DEBUG
-  fprintf(stderr, "VsamFile: VSAM dataset created and opened successfully.\n");
-#endif
   rc_ = setKeyRecordLengths();
+#ifdef DEBUG
+  if (rc_ == 0)
+    fprintf(stderr,
+            "VsamFile: VSAM dataset created and opened successfully.\n");
+#endif
 }
 
 int VsamFile::setKeyRecordLengths() {
@@ -334,14 +352,15 @@ int VsamFile::setKeyRecordLengths() {
   fldata(stream_, NULL, &dinfo);
   keylen_ = dinfo.__vsamkeylen;
   reclen_ = dinfo.__maxreclen;
-  if (keylen_ == layout_[key_i_].maxLength)
+  if (keylen_ == layout_[key_i_].maxLength) {
     return 0;
+  }
 
   errmsg_ = "Error: key length " + std::to_string(keylen_) +
             " doesn't match length " +
             std::to_string(layout_[key_i_].maxLength) + " in schema.";
 #ifdef DEBUG
-  fprintf(stderr, "VsamFile: fclose(%p)\n", stream_);
+  fprintf(stderr, "setKeyRecordLengths error: %s\nClosing stream %p", errmsg_.c_str(), stream_);
 #endif
   fclose(stream_);
   stream_ = NULL;
@@ -358,6 +377,8 @@ VsamFile::VsamFile(const std::string &path,
 #endif
   // open() or alloc() should be called directly by WrappedVsam that created
   // this.
+  vsamThread_ = std::thread(vsamThread, this, &vsamThreadCV_,
+                            &vsamThreadMmutex_, &vsamThreadQueue_);
 }
 
 VsamFile::~VsamFile() {
@@ -373,25 +394,25 @@ VsamFile::~VsamFile() {
   }
 }
 
-int VsamFile::Close(std::string &errmsg) {
+void VsamFile::Close(UvWorkData *pdata) {
   // non-async
   if (stream_ == NULL) {
-    errmsg = "VSAM dataset is not open.";
-    return 1;
+    pdata->errmsg_ = "VSAM dataset is not open.";
+    return;
   }
 #ifdef DEBUG
-  fprintf(stderr, "Close(): fclose(%p)\n", stream_);
+  fprintf(stderr, "Close fclose(%p)\n", stream_);
 #endif
   if (fclose(stream_)) {
-    createErrorMsg(errmsg, errno, __errno2(),
+    createErrorMsg(pdata->errmsg_, errno, __errno2(),
                    "Error: failed to close VSAM dataset");
-    return 1;
+    return;
   }
   stream_ = NULL;
 #ifdef DEBUG
   fprintf(stderr, "VSAM dataset closed successfully.\n");
 #endif
-  return 0;
+  pdata->rc_ = 0;
 }
 
 int VsamFile::hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr) {
@@ -527,4 +548,57 @@ static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
   fprintf(stderr, "%s\n", errmsg.c_str());
 #endif
   return errmsg;
+}
+
+int VsamFile::routeToVsamThread(VSAM_THREAD_MSGID msgid,
+                                void (VsamFile::*pWorkFunc)(UvWorkData *),
+                                UvWorkData *pdata) {
+  std::condition_variable cv;
+  ST_VsamThreadMsg msg = {msgid, cv, pWorkFunc, pdata, -1};
+  std::unique_lock<std::mutex> lck(vsamThreadMmutex_);
+  vsamThreadQueue_.push(&msg);
+  vsamThreadCV_.notify_one();
+  cv.wait(lck);
+  return msg.rc;
+}
+
+int VsamFile::exitVsamThread() {
+  if (getVsamThreadId() == 0) {
+#ifdef DEBUG
+    fprintf(stderr, "exitVsamThread thread id is 0, nothing to do.\n");
+#endif
+    return 0;
+  }
+  if (!vsamThread_.joinable()) {
+#ifdef DEBUG
+    fprintf(stderr, "exitVsamThread thread %d not joinable, nothing to do.\n",
+            getVsamThreadId());
+#endif
+    return 0;
+  }
+  std::condition_variable cv;
+  ST_VsamThreadMsg msg = {MSG_EXIT, cv, nullptr, nullptr, -1};
+  std::unique_lock<std::mutex> lck(vsamThreadMmutex_);
+  vsamThreadQueue_.push(&msg);
+  vsamThreadCV_.notify_one();
+  cv.wait(lck);
+  if (vsamThread_.joinable()) {
+#ifdef DEBUG
+    fprintf(stderr, "exitVsamThread calling join() on thread %d...",
+            getVsamThreadId());
+    vsamThread_.join();
+    fprintf(stderr, "done\n.");
+#else
+    vsamThread_.join();
+#endif
+  }
+#ifdef DEBUG
+  else {
+    fprintf(stderr,
+            "exitVsamThread thread %d joinable state changed from true to "
+            "false, nothing to do.\n",
+            getVsamThreadId());
+  }
+#endif
+  return msg.rc;
 }

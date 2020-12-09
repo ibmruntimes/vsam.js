@@ -6,7 +6,7 @@
       "cflags_cc!": [ "-fno-exceptions" ],
       "cflags": [ "-qascii" ],
       "cflags_cc": [ "-qascii" ],
-      "sources": [ "vsam.cpp", "WrappedVsam.cpp", "VsamFile.cpp" ],
+      "sources": [ "vsam.cpp", "WrappedVsam.cpp", "VsamFile.cpp", "VsamThread.cpp" ],
       "include_dirs": [
          "<!@(node -p \"require('node-addon-api').include\")"
       ],

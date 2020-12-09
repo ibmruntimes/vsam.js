@@ -5,6 +5,7 @@
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
 #include "WrappedVsam.h"
+#include "VsamThread.h"
 #include <sstream>
 #include <unistd.h>
 
@@ -106,35 +107,50 @@ void WrappedVsam::FindExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
-  obj->FindExecute(pdata);
+  if (obj->isReadOnly())
+    obj->FindExecute(pdata);
+  else
+    obj->routeToVsamThread(MSG_FIND, &VsamFile::FindExecute, pdata);
 }
 
 void WrappedVsam::ReadExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
-  obj->ReadExecute(pdata);
+  if (obj->isReadOnly())
+    obj->ReadExecute(pdata);
+  else
+    obj->routeToVsamThread(MSG_READ, &VsamFile::ReadExecute, pdata);
 }
 
 void WrappedVsam::DeleteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
-  obj->DeleteExecute(pdata);
+  if (obj->isReadOnly())
+    obj->DeleteExecute(pdata);
+  else
+    obj->routeToVsamThread(MSG_DELETE, &VsamFile::DeleteExecute, pdata);
 }
 
 void WrappedVsam::WriteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
-  obj->WriteExecute(pdata);
+  if (obj->isReadOnly())
+    obj->WriteExecute(pdata);
+  else
+    obj->routeToVsamThread(MSG_WRITE, &VsamFile::WriteExecute, pdata);
 }
 
 void WrappedVsam::UpdateExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
-  obj->UpdateExecute(pdata);
+  if (obj->isReadOnly())
+    obj->UpdateExecute(pdata);
+  else
+    obj->routeToVsamThread(MSG_UPDATE, &VsamFile::UpdateExecute, pdata);
 }
 
 void WrappedVsam::DeallocExecute(uv_work_t *req) {
@@ -170,21 +186,45 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
   fprintf(stderr, "WrappedVsam this=%p created pVsamFile_=%p\n", this,
           pVsamFile_);
 #endif
-  if (alloc)
-    pVsamFile_->alloc();
-  else
-    pVsamFile_->open();
+  if (pVsamFile_->isReadOnly()) {
+    // no need for a separate thread to handle I/O for this dataset.
+    if (alloc)
+      pVsamFile_->alloc(nullptr);
+    else
+      pVsamFile_->open(nullptr);
+    return;
+  }
+  pVsamFile_->routeToVsamThread(MSG_OPEN,
+                                alloc ? &VsamFile::alloc : &VsamFile::open);
 }
 
 WrappedVsam::~WrappedVsam() {
 #if defined(DEBUG) || defined(XDEBUG)
-  fprintf(stderr, "In WrappedVsam destructor this=%p, pVsamFile_=%p.\n", this,
-          pVsamFile_);
+  fprintf(stderr, "~WrappedVsam this=%p, deleteVsamFileObj...\n", this);
 #endif
-  if (pVsamFile_) {
-    delete pVsamFile_;
-    pVsamFile_ = NULL;
+  deleteVsamFileObj();
+}
+
+void WrappedVsam::deleteVsamFileObj() {
+  if (pVsamFile_ == nullptr) {
+#ifdef DEBUG
+    fprintf(stderr,
+            "deleteVsamFileObj pVsamFile_ already null, nothing to do.\n");
+#endif
+    return;
   }
+#ifdef DEBUG
+  fprintf(stderr, "deleteVsamFileObj calling vsamExitThread...\n");
+#endif
+  pVsamFile_->exitVsamThread();
+#ifdef DEBUG
+  fprintf(stderr, "deleteVsamFileObj delete pVsamFile_ %p...\n", pVsamFile_);
+#endif
+  delete pVsamFile_;
+#ifdef DEBUG
+  fprintf(stderr, "deleteVsamFileObj done...\n");
+#endif
+  pVsamFile_ = NULL;
 }
 
 Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
@@ -338,7 +378,6 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
        Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
        Napi::Number::New(env, key_i), Napi::String::New(env, mode),
        Napi::Boolean::New(env, alloc)});
-
   std::string errmsg;
   WrappedVsam *p = Napi::ObjectWrap<WrappedVsam>::Unwrap(obj);
   if (!p || !p->pVsamFile_ || p->pVsamFile_->getLastError(errmsg) ||
@@ -350,10 +389,9 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         .ThrowAsJavaScriptException();
     if (p && p->pVsamFile_) {
 #ifdef DEBUG
-      fprintf(stderr, "Construct(): delete pVsamFile_ %p\n", p->pVsamFile_);
+      fprintf(stderr, "Construct deleteVsamFileObj...\n");
 #endif
-      delete p->pVsamFile_;
-      p->pVsamFile_ = NULL;
+      p->deleteVsamFileObj();
     }
   }
   return scope.Escape(napi_value(obj)).ToObject();
@@ -399,17 +437,26 @@ Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo &info) {
 }
 
 void WrappedVsam::Close(const Napi::CallbackInfo &info) {
-  std::string errmsg;
+  int rc;
 #ifdef DEBUG
   fprintf(stderr, "Closing VSAM dataset...\n");
 #endif
-  if (pVsamFile_->Close(errmsg)) {
+  static Napi::Function dummy;
+  UvWorkData uvdata(nullptr, dummy, nullptr);
+  if (pVsamFile_->isReadOnly())
+    pVsamFile_->Close(&uvdata);
+  else
+    pVsamFile_->routeToVsamThread(MSG_CLOSE, &VsamFile::Close, &uvdata);
+ 
+  if (uvdata.rc_) {
     Napi::HandleScope scope(info.Env());
-    Napi::Error::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+    Napi::Error::New(info.Env(), uvdata.errmsg_).ThrowAsJavaScriptException();
     return;
   }
-  delete pVsamFile_;
-  pVsamFile_ = NULL;
+#ifdef DEBUG
+  fprintf(stderr, "Close deleteVsamFileObj...\n");
+#endif
+  deleteVsamFileObj();
 }
 
 void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
@@ -565,7 +612,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality) {
     if (info[0].IsString()) {
       key = static_cast<std::string>(info[0].As<Napi::String>());
 #ifdef DEBUG
-      fprintf(stderr, "Find() line %d: key=<%s>\n", __LINE__, key.c_str());
+      fprintf(stderr, "Find key=<%s>\n", key.c_str());
 #endif
       if (layout[key_i].type == LayoutItem::HEXADECIMAL) {
         if (!VsamFile::isHexStrValid(layout[key_i], key, errmsg)) {
@@ -590,12 +637,11 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality) {
       }
       keybuf_len = info[1].As<Napi::Number>().Uint32Value();
 #ifdef DEBUG
-      fprintf(stderr, "Find() line %d: keybuf_len=<%d>\n", __LINE__,
-              keybuf_len);
+      fprintf(stderr, "Find keybuf_len=<%d>\n", keybuf_len);
 #endif
       if (!VsamFile::isHexBufValid(layout[key_i], buf, keybuf_len, errmsg)) {
 #ifdef DEBUG
-        fprintf(stderr, "Find() line %d: %s\n", __LINE__, errmsg.c_str());
+        fprintf(stderr, "Find error: %s\n", errmsg.c_str());
 #endif
         Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
         return;
@@ -626,9 +672,9 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality) {
   } else {
 #ifdef DEBUG
     if (equality == __KEY_LAST)
-      fprintf(stderr, "Find() line %d: equality=__KEY_LAST\n", __LINE__);
+      fprintf(stderr, "Find equality=__KEY_LAST\n");
     else if (equality == __KEY_FIRST)
-      fprintf(stderr, "Find() line %d: equality=__KEY_FIRST\n", __LINE__);
+      fprintf(stderr, "Find equality=__KEY_FIRST\n");
     else
       DCHECK(0);
 #endif
@@ -652,9 +698,9 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality) {
 #ifdef DEBUG
   if (equality != __KEY_LAST && equality != __KEY_FIRST) {
     if (key.length() > 0)
-      fprintf(stderr, "Find() line %d: key=<%s>\n", __LINE__, key.c_str());
+      fprintf(stderr, "Find key=<%s>\n", key.c_str());
     else if (keybuf) {
-      fprintf(stderr, "Find() line %d: keybuf=", __LINE__);
+      fprintf(stderr, "Find keybuf=");
       for (int i = 0; i < keybuf_len; i++)
         fprintf(stderr, "%x ", keybuf[i]);
       fprintf(stderr, "\n");

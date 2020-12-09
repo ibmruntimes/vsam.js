@@ -7,6 +7,7 @@
 
 #pragma once
 #include "VsamFile.h"
+#include "VsamThread.h"
 #include <napi.h>
 #include <uv.h>
 
@@ -23,8 +24,7 @@ public:
 private:
   static Napi::Object Construct(const Napi::CallbackInfo &info, bool alloc);
 
-  /* Private methods */
-  void deleteUvWorkData(UvWorkData *pdata);
+  void deleteVsamFileObj();
   bool validateStr(const LayoutItem &item, const std::string &str);
   bool validateHexBuf(const LayoutItem &item, const char *buf, int len);
   bool validateHexStr(const LayoutItem &item, const std::string &hexstr);

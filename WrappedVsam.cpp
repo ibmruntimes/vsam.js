@@ -491,8 +491,18 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
     const Napi::Value &field = record.Get(i->name);
 
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
+#ifdef DEBUG
+      if (field.IsUndefined()) {
+        fprintf(stderr,
+                "write value of %s was not set, will attempt to set it to "
+                "all 0x00\n",
+                i->name.c_str());
+      }
+#endif
       const std::string &str =
-          static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
+          field.IsUndefined() ? ""
+                              : static_cast<std::string>(
+                                    Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, errmsg)) {
           throwError(info.Env(), true, errmsg.c_str());
@@ -545,6 +555,12 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
+    if (field.IsUndefined()) {
+      throwError(info.Env(), true,
+                 "Error: update value for %s has not been set.",
+                 i->name.c_str());
+      return;
+    }
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
       const std::string &str =
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));

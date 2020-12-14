@@ -110,7 +110,7 @@ chk:
     }
     pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(),
-                   "Error: find() record found but could not be read");
+                   "Error: record found but could not be read");
   } else {
     pdata->rc_ = 0;
     DCHECK(pdata->recbuf_ == NULL);
@@ -140,7 +140,8 @@ void VsamFile::ReadExecute(UvWorkData *pdata) {
 void VsamFile::DeleteExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
 #ifdef DEBUG
-  fprintf(stderr, "DeleteExecute fdelrec() to %p, tid=%d...", stream_, gettid());
+  fprintf(stderr, "DeleteExecute fdelrec() to %p, tid=%d...", stream_,
+          gettid());
 #endif
   pdata->rc_ = fdelrec(stream_);
   if (pdata->rc_ != 0) {
@@ -360,7 +361,8 @@ int VsamFile::setKeyRecordLengths() {
             " doesn't match length " +
             std::to_string(layout_[key_i_].maxLength) + " in schema.";
 #ifdef DEBUG
-  fprintf(stderr, "setKeyRecordLengths error: %s\nClosing stream %p", errmsg_.c_str(), stream_);
+  fprintf(stderr, "setKeyRecordLengths %s\nClosing stream %p", errmsg_.c_str(),
+          stream_);
 #endif
   fclose(stream_);
   stream_ = NULL;
@@ -519,7 +521,8 @@ bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
   if (!std::all_of(hexstr.begin() + start, hexstr.end(), ::isxdigit)) {
     errmsg = "Error: hex string for '" + item.name +
              "' must contain only hex digits 0-9 and a-f or A-F, with an "
-             "optional 0x prefix.";
+             "optional 0x prefix, found <" +
+             hexstr + ">.";
     return false;
   }
   len -= start;
@@ -527,7 +530,7 @@ bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
   if (digits > item.maxLength) {
     errmsg = "Error: number of hex digits " + std::to_string(digits) +
              " for '" + item.name + "' exceed schema's length " +
-             std::to_string(item.maxLength) + ".";
+             std::to_string(item.maxLength) + ", found <" + hexstr + ">.";
     return false;
   }
   return true;

@@ -32,7 +32,6 @@ private:
   /* Entry point from Javascript */
   void Close(const Napi::CallbackInfo &info);
   void Read(const Napi::CallbackInfo &info);
-  void Find(const Napi::CallbackInfo &info, int equality);
   void FindEq(const Napi::CallbackInfo &info);
   void FindGe(const Napi::CallbackInfo &info);
   void FindFirst(const Napi::CallbackInfo &info);
@@ -57,6 +56,10 @@ private:
   static void UpdateComplete(uv_work_t *req, int status);
   static void WriteComplete(uv_work_t *req, int status);
   static void DeleteComplete(uv_work_t *req, int status);
+
+  void Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
+            int callbackArg, uv_work_cb pExecuteFunc = FindExecute,
+            uv_after_work_cb pCompleteFunc = ReadComplete);
 
 private:
   static Napi::FunctionReference constructor_;

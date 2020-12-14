@@ -11,7 +11,7 @@
 
 Napi::FunctionReference WrappedVsam::constructor_;
 
-static void throwError(Napi::Env env, const char *fmt, ...) {
+static void throwError(Napi::Env env, bool isTypeErr, const char *fmt, ...) {
   char msg[1024];
   va_list args;
   va_start(args, fmt);
@@ -20,7 +20,10 @@ static void throwError(Napi::Env env, const char *fmt, ...) {
 #ifdef DEBUG
   fprintf(stderr, "%s\n", msg);
 #endif
-  Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+  if (isTypeErr)
+    Napi::TypeError::New(env, msg).ThrowAsJavaScriptException();
+  else
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
 }
 
 void WrappedVsam::DefaultComplete(uv_work_t *req, int status) {
@@ -164,7 +167,7 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<WrappedVsam>(info) {
   if (info.Length() != 5) {
     Napi::HandleScope scope(info.Env());
-    throwError(info.Env(),
+    throwError(info.Env(), true,
                "Error: wrong number of arguments to WrappedVsam constructor: "
                "got %d, expected 5.",
                info.Length());
@@ -273,7 +276,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 
     const Napi::Object &item = schema.Get(properties.Get(i)).As<Napi::Object>();
     if (item.IsEmpty()) {
-      throwError(env, "Error in JSON: item %d is empty.", i + 1);
+      throwError(env, false, "Error in JSON: item %d is empty.", i + 1);
       return env.Null().ToObject();
     }
 
@@ -281,7 +284,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
     if (item.Has("minLength")) {
       const Napi::Value &vminLength = item.Get("minLength");
       if (!vminLength.IsEmpty() && !vminLength.IsNumber()) {
-        throwError(env,
+        throwError(env, true,
                    "Error in JSON (item %d): minLength value must be numeric.",
                    i + 1);
         return env.Null().ToObject();
@@ -289,7 +292,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         minLength = vminLength.ToNumber().Int32Value();
         if (minLength < 0) {
           throwError(
-              env,
+              env, true,
               "Error in JSON (item %d): minLength value cannot be negative.",
               i + 1);
           return env.Null().ToObject();
@@ -299,20 +302,21 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 
     int maxLength = 0;
     if (!item.Has("maxLength")) {
-      throwError(env, "Error in JSON (item %d): maxLength must be specified.",
+      throwError(env, true,
+                 "Error in JSON (item %d): maxLength must be specified.",
                  i + 1);
       return env.Null().ToObject();
     }
     const Napi::Value &vmaxLength = item.Get("maxLength");
     if (!vmaxLength.IsNumber()) {
-      throwError(env, "Error in JSON (item %d): maxLength must be numeric.",
-                 i + 1);
+      throwError(env, true,
+                 "Error in JSON (item %d): maxLength must be numeric.", i + 1);
       return env.Null().ToObject();
     } else {
       maxLength = vmaxLength.ToNumber().Int32Value();
       if (maxLength <= 0) {
         throwError(
-            env,
+            env, true,
             "Error in JSON (item %d): maxLength value must be greater than 0.",
             i + 1);
         return env.Null().ToObject();
@@ -320,7 +324,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
     }
 
     if (minLength > maxLength) {
-      throwError(env,
+      throwError(env, true,
                  "Error in JSON (item %d): minLength cannot be greater than "
                  "maxLength.",
                  i + 1);
@@ -339,7 +343,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         layout.push_back(
             LayoutItem(name, minLength, maxLength, LayoutItem::HEXADECIMAL));
       } else {
-        throwError(env,
+        throwError(env, true,
                    "Error in JSON (item %d): \"type\" must be either "
                    "\"string\" or \"hexadecimal\"",
                    i + 1);
@@ -349,7 +353,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         key_i = i;
       }
     } else {
-      throwError(env,
+      throwError(env, true,
                  "Error in JSON (item %d): \"type\" must be specified (string "
                  "or hexadecimal)",
                  i + 1);
@@ -364,7 +368,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
     const Napi::Value &vminLength =
         item.Get(Napi::String::New(env, "minLength"));
     if (vminLength.ToNumber().Int32Value() == 0) {
-      throwError(env,
+      throwError(env, true,
                  "Error in JSON (item %d): minLength of key '%s' must be "
                  "greater than 0.",
                  key_i + 1, layout[key_i].name.c_str());
@@ -383,10 +387,9 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
   if (!p || !p->pVsamFile_ || p->pVsamFile_->getLastError(errmsg) ||
       !p->pVsamFile_->isDatasetOpen()) {
     const char *perr = errmsg.c_str();
-    Napi::Error::New(env, perr && *perr
-                              ? perr
-                              : "Error: failed to construct VsamFile object.")
-        .ThrowAsJavaScriptException();
+    throwError(env, false,
+               perr && *perr ? perr
+                             : "Error: failed to construct VsamFile object.");
     if (p && p->pVsamFile_) {
 #ifdef DEBUG
       fprintf(stderr, "Construct deleteVsamFileObj...\n");
@@ -401,9 +404,9 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 Napi::Object WrappedVsam::AllocSync(const Napi::CallbackInfo &info) {
   if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject()) {
     Napi::HandleScope scope(info.Env());
-    Napi::TypeError::New(info.Env(), "Error: openSync() expects arguments: "
-                                     "VSAM dataset name, schema JSON object.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true,
+               "Error: openSync() expects arguments: "
+               "VSAM dataset name, schema JSON object.");
     return info.Env().Null().ToObject();
   }
   return Construct(info, true);
@@ -414,10 +417,9 @@ Napi::Object WrappedVsam::OpenSync(const Napi::CallbackInfo &info) {
   if ((info.Length() < 2 || !info[0].IsString() || !info[1].IsObject()) ||
       (info.Length() == 3 && !info[2].IsString()) || (info.Length() > 3)) {
     Napi::HandleScope scope(info.Env());
-    Napi::TypeError::New(info.Env(),
-                         "Error: openSync() expects arguments: VSAM dataset "
-                         "name, schema JSON object, optional fopen() mode.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true,
+               "Error: openSync() expects arguments: VSAM dataset "
+               "name, schema JSON object, optional fopen() mode.");
     return info.Env().Null().ToObject();
   }
   return Construct(info, false);
@@ -427,9 +429,8 @@ Napi::Object WrappedVsam::OpenSync(const Napi::CallbackInfo &info) {
 Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
   if (info.Length() != 1 || !info[0].IsString()) {
-    Napi::TypeError::New(info.Env(),
-                         "Error: exist() expects argument: VSAM dataset name.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true,
+               "Error: exist() expects argument: VSAM dataset name.");
     return Napi::Boolean::New(info.Env(), false);
   }
   const std::string &path(static_cast<std::string>(info[0].As<Napi::String>()));
@@ -447,10 +448,10 @@ void WrappedVsam::Close(const Napi::CallbackInfo &info) {
     pVsamFile_->Close(&uvdata);
   else
     pVsamFile_->routeToVsamThread(MSG_CLOSE, &VsamFile::Close, &uvdata);
- 
+
   if (uvdata.rc_) {
     Napi::HandleScope scope(info.Env());
-    Napi::Error::New(info.Env(), uvdata.errmsg_).ThrowAsJavaScriptException();
+    throwError(info.Env(), false, uvdata.errmsg_.c_str());
     return;
   }
 #ifdef DEBUG
@@ -461,9 +462,7 @@ void WrappedVsam::Close(const Napi::CallbackInfo &info) {
 
 void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
-    Napi::TypeError::New(info.Env(),
-                         "Error: delete() expects argument: function.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true, "Error: delete() expects argument: function.");
     return;
   }
   uv_work_t *request = new uv_work_t;
@@ -475,9 +474,8 @@ void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
 void WrappedVsam::Write(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
-    Napi::TypeError::New(info.Env(),
-                         "Error: write() expects arguments: record, function.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true,
+               "Error: write() expects arguments: record, function.");
     return;
   }
   const Napi::Object &record = info[0].ToObject();
@@ -491,12 +489,13 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
+
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
       const std::string &str =
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, errmsg)) {
-          Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+          throwError(info.Env(), true, errmsg.c_str());
           return;
         }
         DCHECK(str.length() <= i->maxLength);
@@ -505,15 +504,14 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, errmsg)) {
-          Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+          throwError(info.Env(), true, errmsg.c_str());
           return;
         }
         DCHECK((fldbuf - recbuf) + i->maxLength <= reclen);
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
     } else {
-      Napi::TypeError::New(info.Env(), "Unexpected JSON data type")
-          .ThrowAsJavaScriptException();
+      throwError(info.Env(), true, "Unexpected JSON data type.");
       return;
     }
     fldbuf += i->maxLength;
@@ -527,10 +525,12 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
 
 void WrappedVsam::Update(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
+
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
-    Napi::TypeError::New(info.Env(),
-                         "Error: write() expects arguments: record, function.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true,
+               "Error: write() expects arguments: record, function, "
+               "or key-buffer [,key-buffer-length], record, function, "
+               "or key-string, record, function.");
     return;
   }
 
@@ -550,7 +550,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, errmsg)) {
-          Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+          throwError(info.Env(), true, errmsg.c_str());
           return;
         }
         DCHECK(str.length() <= i->maxLength);
@@ -558,14 +558,14 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, errmsg)) {
-          Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+          throwError(info.Env(), true, errmsg.c_str());
           return;
         }
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
       fldbuf += i->maxLength;
     } else {
-      throwError(info.Env(), "Error: unexpected data type %d.", i->type);
+      throwError(info.Env(), true, "Error: unexpected data type %d.", i->type);
       return;
     }
   }
@@ -577,147 +577,125 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
 }
 
 void WrappedVsam::FindEq(const Napi::CallbackInfo &info) {
-  Find(info, __KEY_EQ);
+  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction())
+    Find(info, __KEY_EQ, "find", 1);
+
+  else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+           info[2].IsFunction())
+    Find(info, __KEY_EQ, "find", 2);
+
+  else
+    throwError(info.Env(), true,
+               "Error: find() expects arguments: "
+               "or key-string, callback, "
+               "or key-buffer, key-buffer-length, callback.");
 }
 
 void WrappedVsam::FindGe(const Napi::CallbackInfo &info) {
-  Find(info, __KEY_GE);
+  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction())
+    Find(info, __KEY_GE, "findge", 1);
+
+  else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+           info[2].IsFunction())
+    Find(info, __KEY_GE, "findge", 2);
+
+  else
+    throwError(info.Env(), true,
+               "Error: findge() expects arguments: "
+               "or key-string, callback, "
+               "or key-buffer, key-buffer-length, callback.");
 }
 
 void WrappedVsam::FindFirst(const Napi::CallbackInfo &info) {
-  Find(info, __KEY_FIRST);
+  if (info.Length() == 1 && info[0].IsFunction())
+    Find(info, __KEY_FIRST, "findfirst", 0);
+  else
+    throwError(info.Env(), true,
+               "Error: findfirst() expects argument: callback.");
 }
 
 void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
-  Find(info, __KEY_LAST);
+  if (info.Length() == 1 && info[0].IsFunction())
+    Find(info, __KEY_LAST, "findlast", 0);
+  else
+    throwError(info.Env(), true,
+               "Error: findlast() expects argument: callback.");
 }
 
-void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality) {
+void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
+                       const char *pApiName, int callbackArg,
+                       uv_work_cb pExecuteFunc,
+                       uv_after_work_cb pCompleteFunc) {
   Napi::HandleScope scope(info.Env());
   std::string key;
   char *keybuf = NULL;
   int keybuf_len = 0;
   int key_i = pVsamFile_->getKeyNum();
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
-  int callbackArg = 0;
   std::string errmsg;
 
   if (equality != __KEY_LAST && equality != __KEY_FIRST) {
-    if (info.Length() < 2) {
-      Napi::Error::New(info.Env(),
-                       "Error: find() expects at least 2 arguments.")
-          .ThrowAsJavaScriptException();
-      return;
-    }
     if (info[0].IsString()) {
       key = static_cast<std::string>(info[0].As<Napi::String>());
 #ifdef DEBUG
-      fprintf(stderr, "Find key=<%s>\n", key.c_str());
+      fprintf(stderr, "%s key=<%s>\n", pApiName, key.c_str());
 #endif
       if (layout[key_i].type == LayoutItem::HEXADECIMAL) {
         if (!VsamFile::isHexStrValid(layout[key_i], key, errmsg)) {
-          Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+          throwError(info.Env(), true, "%s %s", pApiName, errmsg.c_str());
           return;
         }
       } else {
         if (!VsamFile::isStrValid(layout[key_i], key, errmsg)) {
-          Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+          throwError(info.Env(), true, "%s %s", pApiName, errmsg.c_str());
           return;
         }
       }
-      callbackArg = 1;
     } else if (info[0].IsObject()) {
       const char *buf = info[0].As<Napi::Buffer<char>>().Data();
       if (!info[1].IsNumber()) {
-        Napi::TypeError::New(
-            info.Env(),
-            "Error: find() buffer argument must be followed by its length.")
-            .ThrowAsJavaScriptException();
+        throwError(info.Env(), true,
+                   "Error: %s buffer argument must be followed by its length.",
+                   pApiName);
         return;
       }
       keybuf_len = info[1].As<Napi::Number>().Uint32Value();
 #ifdef DEBUG
-      fprintf(stderr, "Find keybuf_len=<%d>\n", keybuf_len);
+      fprintf(stderr, "%s keybuf_len=<%d>\n", pApiName, keybuf_len);
 #endif
       if (!VsamFile::isHexBufValid(layout[key_i], buf, keybuf_len, errmsg)) {
 #ifdef DEBUG
-        fprintf(stderr, "Find error: %s\n", errmsg.c_str());
+        fprintf(stderr, "%s %s\n", pApiName, errmsg.c_str());
 #endif
-        Napi::TypeError::New(info.Env(), errmsg).ThrowAsJavaScriptException();
+        throwError(info.Env(), true, "%s %s", pApiName, errmsg.c_str());
         return;
       }
       DCHECK(keybuf_len > 0);
       keybuf = (char *)malloc(keybuf_len);
       DCHECK(keybuf != NULL);
       memcpy(keybuf, buf, keybuf_len);
-      callbackArg = 2;
     } else {
-      Napi::TypeError::New(info.Env(), "Error: find() first argument must be "
-                                       "either a string or a Buffer object.")
-          .ThrowAsJavaScriptException();
-      return;
-    }
-    if (!info[callbackArg].IsFunction()) {
-      char err[64];
-      if (callbackArg == 1) {
-        strcpy(err, "Error: find() second argument must be a function.");
-      } else if (callbackArg == 2) {
-        strcpy(err, "Error: find() thrid argument must be a function.");
-      } else {
-        DCHECK(0);
-      }
-      Napi::Error::New(info.Env(), err).ThrowAsJavaScriptException();
-      return;
-    }
-  } else {
-#ifdef DEBUG
-    if (equality == __KEY_LAST)
-      fprintf(stderr, "Find equality=__KEY_LAST\n");
-    else if (equality == __KEY_FIRST)
-      fprintf(stderr, "Find equality=__KEY_FIRST\n");
-    else
-      DCHECK(0);
-#endif
-    if (info.Length() < 1) {
-      Napi::Error::New(
-          info.Env(),
-          "Error: find() wrong number of arguments; one argument expected.")
-          .ThrowAsJavaScriptException();
-      return;
-    }
-    if (!info[0].IsFunction()) {
-      Napi::TypeError::New(info.Env(),
-                           "Error: find() first argument must be a function.")
-          .ThrowAsJavaScriptException();
+      throwError(info.Env(), true,
+                 "Error: %s first argument must be "
+                 "either a string or a Buffer object.",
+                 pApiName);
       return;
     }
   }
 
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[callbackArg].As<Napi::Function>();
-#ifdef DEBUG
-  if (equality != __KEY_LAST && equality != __KEY_FIRST) {
-    if (key.length() > 0)
-      fprintf(stderr, "Find key=<%s>\n", key.c_str());
-    else if (keybuf) {
-      fprintf(stderr, "Find keybuf=");
-      for (int i = 0; i < keybuf_len; i++)
-        fprintf(stderr, "%x ", keybuf[i]);
-      fprintf(stderr, "\n");
-    } else
-      DCHECK(0);
-  }
-#endif
+
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", 0, key, keybuf,
                                  keybuf_len, equality);
-  uv_queue_work(uv_default_loop(), request, FindExecute, ReadComplete);
+
+  uv_queue_work(uv_default_loop(), request, pExecuteFunc, pCompleteFunc);
 }
 
 void WrappedVsam::Read(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
-    Napi::Error::New(info.Env(), "Error: read() expects argument: function.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true, "Error: read() expects argument: function.");
     return;
   }
   uv_work_t *request = new uv_work_t;
@@ -729,14 +707,14 @@ void WrappedVsam::Read(const Napi::CallbackInfo &info) {
 void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
-    Napi::Error::New(info.Env(), "Error: dealloc() expects argument: function.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), true,
+               "Error: dealloc() expects argument: function.");
     return;
   }
   if (pVsamFile_ && pVsamFile_->isDatasetOpen()) {
     Napi::HandleScope scope(info.Env());
-    Napi::Error::New(info.Env(), "Error: cannot dealloc an open VSAM dataset.")
-        .ThrowAsJavaScriptException();
+    throwError(info.Env(), false,
+               "Error: cannot dealloc an open VSAM dataset.");
     return;
   }
   DCHECK(pVsamFile_ == NULL);

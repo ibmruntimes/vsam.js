@@ -463,8 +463,48 @@ describe("Key Sequenced Dataset #2", function() {
             assert.ifError(err);
             expect(file.close()).to.not.throw;
             done();
-           });
+          });
         });
+      });
+    });
+  });
+
+  it("leave a record field undefined for write and update", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    record = {
+      key: "F1F2F3F4",
+      name: "TEST"
+      // leave amount undefined, should be set to all 0x00
+    };
+    file.write(record, (err) => {
+      assert.ifError(err);
+      file.find(record.key, (record2, err) => {
+        assert.ifError(err);
+        assert.equal(record2.key, "f1f2f3f4", "correct key in record");
+        assert.equal(record2.name, "TEST", "correct name in record");
+        assert.equal(record2.amount, "00", "default amount set to 0 as expected");
+
+        record3 = {
+          key: "F1F2F3F4",
+          name: "TEST"
+          // leave amount undefined, update should fail
+        };
+        expect(() =>
+          file.update(record3, (err) => {})
+        ).to.throw(/Error: update value for amount has not been set./);
+
+        record4 = {
+          key: "F1F2F3F4",
+          amount: "0x1234"
+          // leave name undefined, write should fail because minLength=1
+        };
+        expect(() =>
+          file.write(record4, (err) => {})
+        ).to.throw(/Error: length of 'name' must be 1 or more./);
+
+        expect(file.close()).to.not.throw;
+        done();
       });
     });
   });

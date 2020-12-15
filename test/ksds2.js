@@ -509,6 +509,84 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
+  it("find and update in one call using update()", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    record = {
+      // leave key and name undefined, so only amount is updated in the found record
+      amount: "0123456789000198"
+    };
+    // update() doesn't require a record arg in the callback; for that use findUpdate() as below
+    file.update("f1f2f3f4", record, (err) => {
+      assert.ifError(err);
+      expect(file.close()).to.not.throw;
+      done();
+    });
+  });
+
+  it("find and update in one call using findUpdate()", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    // verify record previously updated with find-update after file close/open
+    file.find("f1f2f3f4", (record, err) => {
+      assert.equal(record.key, "f1f2f3f4", "correct key");
+      assert.equal(record.name, "TEST", "correct name");
+      assert.equal(record.amount, "0123456789000198", "correct amount");
+
+      // find and update another record using findUpdate() with key-buf, key-buflen:
+      record2 = {
+        name: "diane",
+        amount: "12"
+      };
+      const keybuf = Buffer.from([0xA9, 0, 0xB2, 0xF4, 0xfa, 0xbc, 0, 0xe9]);
+      file.findUpdate(keybuf, keybuf.length, record2, (newrec, err) => {
+        assert.ifError(err);
+        assert.equal(newrec.key, "a900b2f4fabc00e9", "correct key returned in updated record");
+        assert.equal(newrec.name, "diane", "correct name returned in updated record");
+        assert.equal(newrec.amount, "12", "correct amount returned in updated record");
+
+        expect(file.close()).to.not.throw;
+        done();
+      });
+    });
+  });
+
+  it("find and delete in one call using delete()", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    // delete() doesn't require a record arg in the callback; for that use findDelete() as below
+    file.delete("e5f6789afabc", (err) => {
+      assert.ifError(err);
+      expect(file.close()).to.not.throw;
+      done();
+    });
+  });
+
+  it("find and delete in one call using findDelete()", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    // verify record previously deleted with find-delete after file close/open
+    file.find("e5f6789afabc", (record, err) => {
+      assert.equal(record, null, "deleted record not found"); 
+
+      const keybuf = Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd0]);
+      file.findDelete(keybuf, keybuf.length, (delrec, err) => {
+        assert.equal(delrec, null, "deleted record not found"); 
+
+        // find and delete another record using findDelete() with key-string:
+        file.findDelete("f1f2f3f4", (delrec, err) => {
+          assert.ifError(err);
+          assert.equal(delrec.key, "f1f2f3f4", "correct key returned in deleted record");
+          assert.equal(delrec.name, "TEST", "correct name returned in deleted record");
+          assert.equal(delrec.amount, "0123456789000198", "correct amount returned in deleted record");
+
+          expect(file.close()).to.not.throw;
+          done();
+        });
+      });
+    });
+  });
+
   it("deallocate a dataset", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));

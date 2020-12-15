@@ -38,6 +38,18 @@ struct LayoutItem {
       : name(n), minLength(mn), maxLength(mx), type(t) {}
 };
 
+struct FieldToUpdate {
+  int offset;
+  int len;
+#ifdef DEBUG
+  std::string name;
+  FieldToUpdate(int ofs, int len, const std::string &nm)
+      : offset(ofs), len(len), name(nm) {}
+#else
+  FieldToUpdate(int ofs, int len) : offset(ofs), len(len) {}
+#endif
+};
+
 class VsamFile;
 
 // This is the 'data' member in uv_work_t request:
@@ -45,10 +57,12 @@ struct UvWorkData {
   UvWorkData(VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env,
              const std::string &path = "", char *recbuf = NULL,
              const std::string &keystr = "", char *keybuf = NULL,
-             int keybuf_len = 0, int equality = 0)
+             int keybuf_len = 0, int equality = 0,
+             std::vector<FieldToUpdate> *pFieldsToUpdate = NULL)
       : pVsamFile_(pVsamFile), cb_(Napi::Persistent(cbfunc)), env_(env),
         path_(path), recbuf_(recbuf), keystr_(keystr), keybuf_(keybuf),
-        keybuf_len_(keybuf_len), equality_(equality), rc_(1) {}
+        keybuf_len_(keybuf_len), equality_(equality),
+        pFieldsToUpdate_(pFieldsToUpdate), rc_(1) {}
 
   ~UvWorkData() {
     if (recbuf_) {
@@ -58,6 +72,10 @@ struct UvWorkData {
     if (keybuf_) {
       free(keybuf_);
       keybuf_ = NULL;
+    }
+    if (pFieldsToUpdate_) {
+      delete pFieldsToUpdate_;
+      pFieldsToUpdate_ = NULL;
     }
   }
 
@@ -70,6 +88,7 @@ struct UvWorkData {
   char *keybuf_;
   int keybuf_len_;
   int equality_;
+  std::vector<FieldToUpdate> *pFieldsToUpdate_;
   int rc_;
   std::string errmsg_;
 };
@@ -82,6 +101,8 @@ typedef enum {
   MSG_UPDATE,
   MSG_DELETE,
   MSG_FIND,
+  MSG_FIND_UPDATE,
+  MSG_FIND_DELETE,
   MSG_EXIT
 } VSAM_THREAD_MSGID;
 
@@ -136,9 +157,11 @@ public:
   void alloc(UvWorkData *pdata);
   void Close(UvWorkData *pdata);
 
-  /* Work functions TODO - change to lowercase and remove Execute */
+  /* Work functions */
   void ReadExecute(UvWorkData *pdata);
   void FindExecute(UvWorkData *pdata);
+  void FindUpdateExecute(UvWorkData *pdata);
+  void FindDeleteExecute(UvWorkData *pdata);
   void UpdateExecute(UvWorkData *pdata);
   void WriteExecute(UvWorkData *pdata);
   void DeleteExecute(UvWorkData *pdata);

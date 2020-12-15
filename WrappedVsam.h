@@ -37,6 +37,10 @@ private:
   void FindFirst(const Napi::CallbackInfo &info);
   void FindLast(const Napi::CallbackInfo &info);
   void Update(const Napi::CallbackInfo &info);
+  void FindUpdate(const Napi::CallbackInfo &info);
+  void FindUpdate_(const Napi::CallbackInfo &info, bool isRecInCB = true);
+  void FindDelete(const Napi::CallbackInfo &info);
+  void FindDelete_(const Napi::CallbackInfo &info, bool isRecInCB = true);
   void Write(const Napi::CallbackInfo &info);
   void Delete(const Napi::CallbackInfo &info);
   void Dealloc(const Napi::CallbackInfo &info);
@@ -46,6 +50,8 @@ private:
   static void ReadExecute(uv_work_t *req);
   static void FindExecute(uv_work_t *req);
   static void UpdateExecute(uv_work_t *req);
+  static void FindUpdateExecute(uv_work_t *req);
+  static void FindDeleteExecute(uv_work_t *req);
   static void WriteExecute(uv_work_t *req);
   static void DeleteExecute(uv_work_t *req);
 
@@ -59,7 +65,9 @@ private:
 
   void Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
             int callbackArg, uv_work_cb pExecuteFunc = FindExecute,
-            uv_after_work_cb pCompleteFunc = ReadComplete);
+            uv_after_work_cb pCompleteFunc = ReadComplete,
+            char *pUpdateRecBuf = NULL,
+            std::vector<FieldToUpdate> *pFieldsToUpdate = NULL);
 
 private:
   static Napi::FunctionReference constructor_;

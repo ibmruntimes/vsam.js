@@ -16,6 +16,8 @@ static const char *getMessageStr(VSAM_THREAD_MSGID msgid) {
   case MSG_DELETE: return "DELETE";
   case MSG_FIND: return "FIND";
   case MSG_READ: return "READ";
+  case MSG_FIND_UPDATE: return "FIND_UPDATE";
+  case MSG_FIND_DELETE: return "FIND_DELETE";
   case MSG_EXIT: return "EXIT";
   default: return "UNKNOWN";
   }
@@ -23,9 +25,7 @@ static const char *getMessageStr(VSAM_THREAD_MSGID msgid) {
 }
 #endif
 
-int gettid() {
-  return (int)(pthread_self().__ & 0x7fffffff);
-}
+int gettid() { return (int)(pthread_self().__ & 0x7fffffff); }
 
 void vsamThread(VsamFile *pVsamFile, std::condition_variable *pcv,
                 std::mutex *pmtx, std::queue<ST_VsamThreadMsg *> *pqueue) {
@@ -55,6 +55,8 @@ void vsamThread(VsamFile *pVsamFile, std::condition_variable *pcv,
     case MSG_DELETE:
     case MSG_FIND:
     case MSG_READ:
+    case MSG_FIND_UPDATE:
+    case MSG_FIND_DELETE:
       (pVsamFile->*(pmsg->pWorkFunc))(pmsg->pdata);
       pmsg->rc = pmsg->pdata->rc_;
       if (pmsg->msgid == MSG_CLOSE) {

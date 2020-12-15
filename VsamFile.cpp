@@ -94,8 +94,8 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
   fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
 #endif
 chk:
+  DCHECK(pdata->recbuf_ == NULL);
   if (pdata->rc_ == 0) {
-    DCHECK(pdata->recbuf_ == NULL);
     pdata->recbuf_ = (char *)malloc(reclen_);
     DCHECK(pdata->recbuf_ != NULL);
     int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
@@ -111,10 +111,45 @@ chk:
     pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(),
                    "Error: record found but could not be read");
-  } else {
-    pdata->rc_ = 0;
-    DCHECK(pdata->recbuf_ == NULL);
   }
+}
+
+void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  DCHECK(pdata->recbuf_ != 0);
+  // should contain fields to update, save it as FindExecute() overwrites it:
+  char *pupdrecbuf = (char *)malloc(reclen_);
+  DCHECK(pupdrecbuf != NULL);
+  memcpy(pupdrecbuf, pdata->recbuf_, reclen_);
+  free(pdata->recbuf_);
+  pdata->recbuf_ = NULL;
+  pdata->rc_ = 1;
+  FindExecute(pdata);
+  if (pdata->rc_ != 0)
+    return;
+  assert(pdata->pFieldsToUpdate_ != NULL);
+  for (auto i = pdata->pFieldsToUpdate_->begin();
+       i != pdata->pFieldsToUpdate_->end(); ++i) {
+#ifdef DEBUG
+    fprintf(stderr, "FindUpdateExecute updating %s to: ", i->name.c_str());
+    for (int o = 0; o < i->len; o++)
+      fprintf(stderr, "%02x ", pupdrecbuf[i->offset + o]);
+    fprintf(stderr, "\n");
+#endif
+    memcpy(pdata->recbuf_ + i->offset, pupdrecbuf + i->offset, i->len);
+  }
+  pdata->rc_ = 1;
+  UpdateExecute(pdata);
+  free(pupdrecbuf);
+}
+
+void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  FindExecute(pdata);
+  if (pdata->rc_ != 0)
+    return;
+  pdata->rc_ = 1;
+  DeleteExecute(pdata);
 }
 
 void VsamFile::ReadExecute(UvWorkData *pdata) {

@@ -116,6 +116,28 @@ void WrappedVsam::FindExecute(uv_work_t *req) {
     obj->routeToVsamThread(MSG_FIND, &VsamFile::FindExecute, pdata);
 }
 
+void WrappedVsam::FindUpdateExecute(uv_work_t *req) {
+  UvWorkData *pdata = (UvWorkData *)(req->data);
+  VsamFile *obj = pdata->pVsamFile_;
+  DCHECK(obj != NULL);
+  if (obj->isReadOnly())
+    obj->FindUpdateExecute(pdata); // let it deal with the error
+  else
+    obj->routeToVsamThread(MSG_FIND_UPDATE, &VsamFile::FindUpdateExecute,
+                           pdata);
+}
+
+void WrappedVsam::FindDeleteExecute(uv_work_t *req) {
+  UvWorkData *pdata = (UvWorkData *)(req->data);
+  VsamFile *obj = pdata->pVsamFile_;
+  DCHECK(obj != NULL);
+  if (obj->isReadOnly())
+    obj->FindDeleteExecute(pdata); // let it deal with the error
+  else
+    obj->routeToVsamThread(MSG_FIND_DELETE, &VsamFile::FindDeleteExecute,
+                           pdata);
+}
+
 void WrappedVsam::ReadExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
@@ -131,7 +153,7 @@ void WrappedVsam::DeleteExecute(uv_work_t *req) {
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
   if (obj->isReadOnly())
-    obj->DeleteExecute(pdata);
+    obj->DeleteExecute(pdata); // let it deal with the error
   else
     obj->routeToVsamThread(MSG_DELETE, &VsamFile::DeleteExecute, pdata);
 }
@@ -141,7 +163,7 @@ void WrappedVsam::WriteExecute(uv_work_t *req) {
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
   if (obj->isReadOnly())
-    obj->WriteExecute(pdata);
+    obj->WriteExecute(pdata); // let it deal with the error
   else
     obj->routeToVsamThread(MSG_WRITE, &VsamFile::WriteExecute, pdata);
 }
@@ -151,7 +173,7 @@ void WrappedVsam::UpdateExecute(uv_work_t *req) {
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != NULL);
   if (obj->isReadOnly())
-    obj->UpdateExecute(pdata);
+    obj->UpdateExecute(pdata); // let it deal with the error
   else
     obj->routeToVsamThread(MSG_UPDATE, &VsamFile::UpdateExecute, pdata);
 }
@@ -242,6 +264,8 @@ Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
                    InstanceMethod("findfirst", &WrappedVsam::FindFirst),
                    InstanceMethod("findlast", &WrappedVsam::FindLast),
                    InstanceMethod("update", &WrappedVsam::Update),
+                   InstanceMethod("findUpdate", &WrappedVsam::FindUpdate),
+                   InstanceMethod("findDelete", &WrappedVsam::FindDelete),
                    InstanceMethod("write", &WrappedVsam::Write),
                    InstanceMethod("delete", &WrappedVsam::Delete),
                    InstanceMethod("close", &WrappedVsam::Close),
@@ -461,7 +485,14 @@ void WrappedVsam::Close(const Napi::CallbackInfo &info) {
 }
 
 void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
-  if (info.Length() < 1 || !info[0].IsFunction()) {
+  if ((info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) ||
+      (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+       info[2].IsFunction())) {
+    FindDelete_(info, false);
+    return;
+  }
+
+  if (info.Length() != 1 || !info[0].IsFunction()) {
     throwError(info.Env(), true, "Error: delete() expects argument: function.");
     return;
   }
@@ -535,6 +566,14 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
 
 void WrappedVsam::Update(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
+
+  if ((info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
+       info[2].IsFunction()) ||
+      (info.Length() == 4 && info[0].IsObject() && info[1].IsNumber() &&
+       info[2].IsObject() && info[3].IsFunction())) {
+    FindUpdate_(info, false);
+    return;
+  }
 
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
     throwError(info.Env(), true,
@@ -640,8 +679,9 @@ void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
 
 void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
                        const char *pApiName, int callbackArg,
-                       uv_work_cb pExecuteFunc,
-                       uv_after_work_cb pCompleteFunc) {
+                       uv_work_cb pExecuteFunc, uv_after_work_cb pCompleteFunc,
+                       char *pUpdateRecBuf,
+                       std::vector<FieldToUpdate> *pFieldsToUpdate) {
   Napi::HandleScope scope(info.Env());
   std::string key;
   char *keybuf = NULL;
@@ -702,8 +742,9 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[callbackArg].As<Napi::Function>();
 
-  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", 0, key, keybuf,
-                                 keybuf_len, equality);
+  request->data =
+      new UvWorkData(pVsamFile_, cb, info.Env(), "", pUpdateRecBuf, key, keybuf,
+                     keybuf_len, equality, pFieldsToUpdate);
 
   uv_queue_work(uv_default_loop(), request, pExecuteFunc, pCompleteFunc);
 }
@@ -738,4 +779,111 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
   Napi::Function cb = info[0].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), path_);
   uv_queue_work(uv_default_loop(), request, DeallocExecute, DeallocComplete);
+}
+
+void WrappedVsam::FindUpdate(const Napi::CallbackInfo &info) {
+  FindUpdate_(info, true);
+}
+
+void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info, bool isRecInCB) {
+  /*
+   * This is also used by Update if the arguments indicate a find-update,
+   * however the user's update() API doesn't require a record arg in its
+   * callback (hence isRecInCB=false), while findUpdate() does.
+   */
+  Napi::HandleScope scope(info.Env());
+  int recArg, cbArg;
+  if (info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
+      info[2].IsFunction()) {
+    recArg = 1;
+    cbArg = 2;
+  } else if (info.Length() == 4 && info[0].IsObject() && info[1].IsNumber() &&
+             info[2].IsObject() && info[3].IsFunction()) {
+    recArg = 2;
+    cbArg = 3;
+  } else {
+    throwError(info.Env(), true,
+               "Error: update|findUpdate() expects arguments: "
+               "key-string, record, callback, or: "
+               "key-buffer, key-buffer-length, record, callback.");
+    return;
+  }
+
+  const Napi::Object &record = info[recArg].ToObject();
+  int reclen = pVsamFile_->getRecordLength();
+  char *recbuf = (char *)malloc(reclen);
+  DCHECK(recbuf != NULL);
+  memset(recbuf, 0, reclen);
+  char *fldbuf = recbuf;
+  std::vector<FieldToUpdate> *pupd = new std::vector<FieldToUpdate>;
+  std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
+  std::string errmsg;
+
+  for (auto i = layout.begin(); i != layout.end(); ++i) {
+    const Napi::Value &field = record.Get(i->name);
+    if (field.IsUndefined()) {
+      fldbuf += i->maxLength;
+      continue;
+    }
+    if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
+      const std::string &str =
+          static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
+      if (i->type == LayoutItem::STRING) {
+        if (!VsamFile::isStrValid(*i, str, errmsg)) {
+          throwError(info.Env(), true, errmsg.c_str());
+          return;
+        }
+        DCHECK(str.length() <= i->maxLength);
+        if (str.length() > 0)
+          memcpy(fldbuf, str.c_str(), str.length());
+      } else {
+        if (!VsamFile::isHexStrValid(*i, str, errmsg)) {
+          throwError(info.Env(), true, errmsg.c_str());
+          return;
+        }
+        VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
+      }
+#ifdef DEBUG
+      pupd->push_back(
+          FieldToUpdate((int)(fldbuf - recbuf), i->maxLength, i->name));
+#else
+      pupd->push_back(FieldToUpdate((int)(fldbuf - recbuf), i->maxLength));
+#endif
+      fldbuf += i->maxLength;
+    } else {
+      throwError(info.Env(), true, "Error: unexpected data type %d.", i->type);
+      return;
+    }
+  }
+  Find(info, __KEY_EQ, "findUpdate", cbArg, FindUpdateExecute,
+       isRecInCB ? ReadComplete : DefaultComplete, recbuf, pupd);
+}
+
+void WrappedVsam::FindDelete(const Napi::CallbackInfo &info) {
+  FindDelete_(info, true);
+}
+
+void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info, bool isRecInCB) {
+  /*
+   * This is also used by Delete if the arguments indicate a find-delete,
+   * however the user's delete() API doesn't require a record arg in its
+   * callback (hence isRecInCB=false), while findDelete() does.
+   */
+  Napi::HandleScope scope(info.Env());
+  int recArg, cbArg;
+  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) {
+    cbArg = 1;
+  } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+             info[2].IsFunction()) {
+    cbArg = 2;
+  } else {
+    throwError(info.Env(), true,
+               "Error: delete|findDelete() expects arguments: "
+               "key-string, callback, or: "
+               "key-buffer, key-buffer-length, callback.");
+    return;
+  }
+
+  Find(info, __KEY_EQ, "findDelete", cbArg, FindDeleteExecute,
+       isRecInCB ? ReadComplete : DefaultComplete);
 }

@@ -82,7 +82,8 @@ describe("Key Sequenced Dataset #2", function() {
       vsam.openSync(testSet,
                     JSON.parse(fs.readFileSync('test/test2.json')),
                     'rb,type=record');
-    }).to.throw(/Error: failed to open dataset: EDC5041I An error was detected at the system level when opening a file./);
+    }).to.throw(/open error: fopen\(\) failed: EDC5041I An error was detected at the system level when opening a file. \(R15=8, errno2=0xc00a0022\)./);
+
     done();
   });
 
@@ -90,20 +91,20 @@ describe("Key Sequenced Dataset #2", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([]);
-    expect(() => {
-      file.find(keybuf, keybuf.length, (record, err) => {});
-    }).to.throw(/Error: length of 'key' must be 1 or more./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.find(keybuf, keybuf.length, (record, err) => {
+      assert.equal(err, "find error: length of 'key' must be 1 or more.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
   it("verify error from zero-length key string", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
-    expect(() => {
-      file.find("", (record, err) => {});
-    }).to.throw(/Error: length of 'key' must be 1 or more./);
-    expect(file.close()).to.not.throw;
+    file.find("", (record, err) => {
+      assert.equal(err, "find error: length of 'key' must be 1 or more.");
+      expect(file.close()).to.not.throw;
+    });
     done();
   });
 
@@ -111,41 +112,41 @@ describe("Key Sequenced Dataset #2", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0xa7, 0xb8, 0x00]);
-    expect(() => {
-      file.find(keybuf, keybuf.length, (record, err) => {});
-    }).to.throw(/Error: length 9 of 'key' exceeds schema's length 8./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.find(keybuf, keybuf.length, (record, err) => {
+      assert.equal(err, "find error: length 9 of 'key' exceeds schema's length 8.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
   it("verify error from hexadecimal key string exceeding max length", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
-    expect(() => {
-      file.find("0xa1b2c3d4e5f6a7a800", (record, err) => {});
-    }).to.throw(/Error: number of hex digits 9 for 'key' exceed schema's length 8./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.find("0xa1b2c3d4e5f6a7a800", (record, err) => {
+      assert.equal(err, "find error: number of hex digits 9 for 'key' exceed schema's length 8, found <0xa1b2c3d4e5f6a7a800>.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
   it("verify error from hexadecimal key string containing non-hex", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
-    expect(() => {
-      file.find("0xa1g2c3d4e5f6a7a800", (record, err) => {});
-    }).to.throw(/Error: hex string for 'key' must contain only hex digits 0-9 and a-f or A-F, with an optional 0x prefix./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.find("0xa1g2c3d4e5f6a7a800", (record, err) => {
+      assert.equal(err, "find error: hex string for 'key' must contain only hex digits 0-9 and a-f or A-F, with an optional 0x prefix, found <0xa1g2c3d4e5f6a7a800>.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
   it("verify error from hexadecimal key string prefixed with invalid 0y", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
-    expect(() => {
-      file.find("0ya1b2c3d4e5f6a7a800", (record, err) => {});
-    }).to.throw(/Error: hex string for 'key' must contain only hex digits 0-9 and a-f or A-F, with an optional 0x prefix./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.find("0ya1b2c3d4e5f6a7a800", (record, err) => {
+      assert.equal(err, "find error: hex string for 'key' must contain only hex digits 0-9 and a-f or A-F, with an optional 0x prefix, found <0ya1b2c3d4e5f6a7a800>.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
   it("verify error from write record with hexadecimal key string exceeding max length", function(done) {
@@ -157,11 +158,11 @@ describe("Key Sequenced Dataset #2", function() {
       name: "JOHN",
       amount: "1234"
     };
-    expect(() => {
-      file.write(record, (err) => {});
-    }).to.throw(/Error: number of hex digits 9 for 'key' exceed schema's length 8./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.write(record, (err) => {
+      assert.equal(err, "write error: number of hex digits 9 for 'key' exceed schema's length 8, found <a1b2c3d4e5f6a7b800>.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
   it("verify error from write record with a field exceeding max length", function(done) {
@@ -173,14 +174,14 @@ describe("Key Sequenced Dataset #2", function() {
       name: "exceed by 1",
       amount: "1234"
     };
-    expect(() => {
-      file.write(record, (err) => {});
-    }).to.throw(/Error: length 11 of 'name' exceeds schema's length 10./);
-    expect(file.close()).to.not.throw;
-    done();
+    file.write(record, (err) => {
+      assert.equal(err, "write error: length 11 of 'name' exceeds schema's length 10.");
+      expect(file.close()).to.not.throw;
+      done();
+    });
   });
 
-  it("write record on empty dataset and find it)", function(done) {
+  it("write record on empty dataset and find it, write same record again and verify error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
@@ -196,8 +197,12 @@ describe("Key Sequenced Dataset #2", function() {
         assert.equal(record.key, "a1b2c3d4", "record has been created");
         assert.equal(record.name, "JOHN", "created record has correct name");
         assert.equal(record.amount, "1234", "created record has correct amount");
-        expect(file.close()).to.not.throw;
-        done();
+
+        file.write(record, (err) => {
+          assert.equal(err, "write error: an attempt was made to store a record with a duplicate key: EDC5065I A write system error was detected. (R15=8, errno2=0xc0500091).");
+          expect(file.close()).to.not.throw;
+          done();
+        });
       });
     });
   });
@@ -221,17 +226,31 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
+  it("verify error from updating a record that results in a duplcate key", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    file.find("e5f6789afabcd000", (record, err) => {
+      assert.ifError(err);
+      record.key = "a1b2c3d4";
+      file.update(record, (err) => {
+        assert.equal(err, "update error: an attempt was made to store a record with a duplicate key: EDC5065I A write system error was detected. (R15=8, errno2=0xc0500090).");
+        expect(file.close()).to.not.throw;
+        done();
+      });
+    });
+  });
+
   it("verify update with value length less than minLength specified", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     file.find("e5f6789afabcd000", (record, err) => {
       assert.ifError(err);
       record.name = "";
-      expect(() => {
-        file.update(record, (err) => {});
-      }).to.throw(/Error: length of 'name' must be 1 or more./);
-      expect(file.close()).to.not.throw;
-      done();
+      file.update(record, (err) => {
+        assert.equal(err, "update error: length of 'name' must be 1 or more.");
+        expect(file.close()).to.not.throw;
+        done();
+      });
     });
   });
 
@@ -248,7 +267,7 @@ describe("Key Sequenced Dataset #2", function() {
       done();
     });
   });
-
+//for (i=0; i<2000; i++) {
   it("verify find, findlast, findfirst, findge followed by a bunch of write/update/find/delete", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
@@ -335,7 +354,7 @@ describe("Key Sequenced Dataset #2", function() {
       });
     });
   });
-
+//}
   it("write new record after read", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
@@ -410,32 +429,41 @@ describe("Key Sequenced Dataset #2", function() {
     expect(() => {
       vsam.openSync(testSet,
                     JSON.parse(fs.readFileSync('test/test-error.json')));
-    }).to.throw(/Error: key length 8 doesn't match length 6 in schema./);
+    }).to.throw(/open error: key length 8 doesn't match length 6 in schema./);
     done();
   });
 
   it("return error for invalid dataset access", function(done) {
     expect(() => {
-      vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access
+      vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access it
                     JSON.parse(fs.readFileSync('test/test2.json')));
-    }).to.throw(/An error occurred when attempting to define a file to the system/);
+    }).to.throw(/open error: fopen\(\) failed: EDC5061I An error occurred when attempting to define a file to the system. \(R15=0, errno2=0xc00b0402\)./);
+    //}).to.throw(/open error: An error occurred when attempting to define a file to the system/);
     done();
   });
 
-  it("return error for invalid dataset name", function(done) {
+  it("return error for invalid dataset name (invalid character)", function(done) {
     expect(() => {
       const testSet = `${uid}.A.B._`;
       vsam.openSync(testSet,
                     JSON.parse(fs.readFileSync('test/test2.json')));
-    }).to.throw(/An invalid file name was specified/);
+    }).to.throw(/open error: fopen\(\) failed: EDC5047I An invalid file name was specified as a function parameter. \(R15=0, errno2=0xc00b0287\)./);
     done();
   });
 
-  it("return error for invalid dataset name", function(done) {
+  it("return error for invalid dataset name (qualifier length < 1)", function(done) {
     expect(() => {
       vsam.openSync("A..B",
                     JSON.parse(fs.readFileSync('test/test2.json')));
-    }).to.throw(/invalid file name/);
+    }).to.throw(/open error: fopen\(\) failed: EDC5047I An invalid file name was specified as a function parameter. \(R15=0, errno2=0xc00b0286\)./);
+    done();
+  });
+
+  it("return error for invalid dataset name (qualifier length > 8)", function(done) {
+    expect(() => {
+      vsam.openSync("A.ABCDEFGHI.B",
+                    JSON.parse(fs.readFileSync('test/test2.json')));
+    }).to.throw(/open error: fopen\(\) failed: EDC5047I An invalid file name was specified as a function parameter. \(R15=0, errno2=0xc00b0286\)./);
     done();
   });
 
@@ -490,21 +518,20 @@ describe("Key Sequenced Dataset #2", function() {
           name: "TEST"
           // leave amount undefined, update should fail
         };
-        expect(() =>
-          file.update(record3, (err) => {})
-        ).to.throw(/Error: update value for amount has not been set./);
+        file.update(record3, (err) => {
+          assert.equal(err, "update error: update value for amount has not been set.");
 
-        record4 = {
-          key: "F1F2F3F4",
-          amount: "0x1234"
-          // leave name undefined, write should fail because minLength=1
-        };
-        expect(() =>
-          file.write(record4, (err) => {})
-        ).to.throw(/Error: length of 'name' must be 1 or more./);
-
-        expect(file.close()).to.not.throw;
-        done();
+          record4 = {
+            key: "F1F2F3F4",
+            amount: "0x1234"
+            // leave name undefined, write should fail because minLength=1
+          };
+          file.write(record4, (err) => {
+            assert.equal(err, "write error: length of 'name' must be 1 or more.");
+            expect(file.close()).to.not.throw;
+            done();
+          });
+        });
       });
     });
   });

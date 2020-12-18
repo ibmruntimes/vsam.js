@@ -137,13 +137,13 @@ public:
 
   static std::string formatDatasetName(const std::string &path);
   static bool isDatasetExist(const std::string &path, int *perr = 0,
-                             int *perr2 = 0);
+                             int *perr2 = 0, int *pr15 = 0);
   static bool isStrValid(const LayoutItem &item, const std::string &str,
-                         std::string &errmsg);
+                         const std::string &errPrefix, std::string &errmsg);
   static bool isHexBufValid(const LayoutItem &item, const char *buf, int len,
-                            std::string &errmsg);
+                            const std::string &errPrefix, std::string &errmsg);
   static bool isHexStrValid(const LayoutItem &item, const std::string &hexstr,
-                            std::string &errmsg);
+                            const std::string &errPrefix, std::string &errmsg);
   static int hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr);
   static int bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
                             int hexbuflen);
@@ -174,7 +174,7 @@ public:
   int getVsamThreadId() { return vsamThread_.native_handle().__ & 0x7fffffff; }
 
 private:
-  int setKeyRecordLengths();
+  int setKeyRecordLengths(const std::string &errPrefix);
 
 private:
   FILE *stream_;

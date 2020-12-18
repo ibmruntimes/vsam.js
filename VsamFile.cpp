@@ -11,8 +11,12 @@
 #include <sstream>
 #include <unistd.h>
 
+// VSAM register 15 for interpreting some of the errors:
+// https://www.ibm.com/support/knowledgecenter/SSB27H_6.2.0/fa2mc2_vsevsam_return_and_error_codes.html
+#define R15 __amrc->__code.__feedback.__rc
+
 static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
-                                   const char *title);
+                                   int r15, const std::string &errPrefix);
 
 static void print_amrc() {
   __amrc_type currErr = *__amrc;
@@ -99,6 +103,7 @@ chk:
     pdata->recbuf_ = (char *)malloc(reclen_);
     DCHECK(pdata->recbuf_ != NULL);
     int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
+    int r15 = R15;
     if (nread == 1) {
 #ifdef DEBUG
       fprintf(stderr, "FindExecute reclen_=%d, fread=", reclen_);
@@ -109,8 +114,8 @@ chk:
       return;
     }
     pdata->rc_ = 1;
-    createErrorMsg(pdata->errmsg_, errno, __errno2(),
-                   "Error: record found but could not be read");
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "find error: record found but could not be read");
   }
 }
 
@@ -179,8 +184,10 @@ void VsamFile::DeleteExecute(UvWorkData *pdata) {
           gettid());
 #endif
   pdata->rc_ = fdelrec(stream_);
+  int r15 = R15;
   if (pdata->rc_ != 0) {
-    createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: delete() failed");
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "delete error: fdelrec() failed");
     return;
   }
 #ifdef DEBUG
@@ -199,11 +206,19 @@ void VsamFile::WriteExecute(UvWorkData *pdata) {
   fprintf(stderr, "\n");
 #endif
   int nelem = fwrite(pdata->recbuf_, 1, reclen_, stream_);
+  int r15 = R15;
 #ifdef DEBUG
-  fprintf(stderr, "WriteExecute fwrite() wrote %d bytes\n", nelem);
+  fprintf(stderr, "WriteExecute fwrite() wrote %d bytes, errno=%d, errno2=%d\n",
+          nelem, errno, __errno2());
 #endif
   if (nelem != reclen_) {
-    createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: write() failed");
+    if (r15 == 8)
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "write error: an attempt was made to store a record with "
+                     "a duplicate key");
+    else
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "write error: fwrite() failed");
     return;
   }
   pdata->rc_ = 0;
@@ -219,11 +234,18 @@ void VsamFile::UpdateExecute(UvWorkData *pdata) {
   fprintf(stderr, "\n");
 #endif
   int nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
+  int r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "UpdateExecute fupdate() wrote %d bytes\n", nbytes);
 #endif
   if (nbytes != reclen_) {
-    createErrorMsg(pdata->errmsg_, errno, __errno2(), "Error: update() failed");
+    if (r15 == 8)
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "update error: an attempt was made to store a record with "
+                     "a duplicate key");
+    else
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "update error: fupdate() failed");
     return;
   }
   pdata->rc_ = 0;
@@ -238,12 +260,13 @@ void VsamFile::DeallocExecute(UvWorkData *pdata) {
   fprintf(stderr, "DeallocExecute remove() from tid=%d\n", gettid());
 #endif
   pdata->rc_ = remove(dataset.c_str());
+  int r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "DeallocExecute remove() returned %d\n", pdata->rc_);
 #endif
   if (pdata->rc_ != 0)
-    createErrorMsg(pdata->errmsg_, errno, __errno2(),
-                   "Error: dealloc() failed");
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "dealloc error: remove() failed");
 }
 
 // static
@@ -257,19 +280,22 @@ std::string VsamFile::formatDatasetName(const std::string &path) {
 }
 
 // static
-bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2) {
+bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
+                              int *pr15) {
   std::string dataset = formatDatasetName(path);
   FILE *stream = fopen(dataset.c_str(), "rb,type=record");
-#ifdef DEBUG
-  fprintf(stderr,
-          "isDatasetExist fopen(%s, rb,type=record) returned %p, tid=%d\n",
-          dataset.c_str(), stream, gettid());
-#endif
+  if (pr15)
+    *pr15 = R15;
   int err2 = __errno2();
   if (perr)
     *perr = errno;
   if (perr2)
     *perr2 = err2;
+#ifdef DEBUG
+  fprintf(stderr,
+          "isDatasetExist fopen(%s, rb,type=record) returned %p, tid=%d\n",
+          dataset.c_str(), stream, gettid());
+#endif
   if (stream != NULL) {
 #ifdef DEBUG
     fprintf(stderr, "isDatasetExist() fclose(%p)\n", stream);
@@ -312,6 +338,7 @@ void VsamFile::open(UvWorkData *pdata) {
   DCHECK(stream_ == NULL);
   std::string dsname = formatDatasetName(path_);
   stream_ = fopen(dsname.c_str(), omode_.c_str());
+  int r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
           dsname.c_str(), omode_.c_str(), stream_, gettid());
@@ -320,10 +347,11 @@ void VsamFile::open(UvWorkData *pdata) {
   int err2 = __errno2();
 
   if (stream_ == NULL) {
-    createErrorMsg(errmsg_, errno, __errno2(), "Error: failed to open dataset");
+    createErrorMsg(errmsg_, errno, __errno2(), r15,
+                   "open error: fopen() failed");
     return;
   }
-  rc_ = setKeyRecordLengths();
+  rc_ = setKeyRecordLengths("open");
 #ifdef DEBUG
   fprintf(stderr, "VsamFile: VSAM dataset opened rc=%d.\n", rc_);
 #endif
@@ -333,15 +361,15 @@ void VsamFile::alloc(UvWorkData *pdata) {
   DCHECK(rc_ != 0);
   DCHECK(pdata == NULL);
   DCHECK(stream_ == NULL);
-  int err, err2;
+  int err, err2, r15;
   std::string dsname = formatDatasetName(path_);
-  if (isDatasetExist(dsname.c_str(), &err, &err2)) {
+  if (isDatasetExist(dsname.c_str(), &err, &err2, &r15)) {
     errmsg_ = "Dataset already exists";
     return;
   }
   if (err2 != 0xC00B0641) {
     // 0xC00B0641 is file not found
-    createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
+    createErrorMsg(errmsg_, err, err2, r15, "alloc error: fopen() failed");
     return;
   }
   std::ostringstream ddname;
@@ -361,20 +389,21 @@ void VsamFile::alloc(UvWorkData *pdata) {
   dyn.__keylength = layout_[key_i_].maxLength;
   dyn.__recorg = __KS;
   if (dynalloc(&dyn) != 0) {
-    createErrorMsg(errmsg_, err, err2, "Failed to allocate dataset");
+    createErrorMsg(errmsg_, err, err2, R15, "alloc error: dynalloc() failed");
     return;
   }
   stream_ = fopen(dsname.c_str(), "ab+,type=record");
+  r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "VsamFile: fopen(%s, ab+,type=record) returned %p, tid=%d\n",
           dsname.c_str(), stream_, gettid());
 #endif
   if (stream_ == NULL) {
-    createErrorMsg(errmsg_, errno, __errno2(),
-                   "Error: failed to open new dataset");
+    createErrorMsg(errmsg_, errno, __errno2(), r15,
+                   "open error: fopen() failed to open new dataset");
     return;
   }
-  rc_ = setKeyRecordLengths();
+  rc_ = setKeyRecordLengths("alloc");
 #ifdef DEBUG
   if (rc_ == 0)
     fprintf(stderr,
@@ -382,7 +411,7 @@ void VsamFile::alloc(UvWorkData *pdata) {
 #endif
 }
 
-int VsamFile::setKeyRecordLengths() {
+int VsamFile::setKeyRecordLengths(const std::string &errPrefix) {
   DCHECK(stream_ != NULL);
   fldata_t dinfo;
   fldata(stream_, NULL, &dinfo);
@@ -392,12 +421,12 @@ int VsamFile::setKeyRecordLengths() {
     return 0;
   }
 
-  errmsg_ = "Error: key length " + std::to_string(keylen_) +
+  errmsg_ = errPrefix + " error: key length " + std::to_string(keylen_) +
             " doesn't match length " +
             std::to_string(layout_[key_i_].maxLength) + " in schema.";
 #ifdef DEBUG
-  fprintf(stderr, "setKeyRecordLengths %s\nClosing stream %p", errmsg_.c_str(),
-          stream_);
+  fprintf(stderr, "%s setKeyRecordLengths %s\nClosing stream %p",
+          errPrefix.c_str(), errmsg_.c_str(), stream_);
 #endif
   fclose(stream_);
   stream_ = NULL;
@@ -443,8 +472,8 @@ void VsamFile::Close(UvWorkData *pdata) {
   fprintf(stderr, "Close fclose(%p)\n", stream_);
 #endif
   if (fclose(stream_)) {
-    createErrorMsg(pdata->errmsg_, errno, __errno2(),
-                   "Error: failed to close VSAM dataset");
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), R15,
+                   "close error: fclose() failed");
     return;
   }
   stream_ = NULL;
@@ -504,17 +533,17 @@ int VsamFile::bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
 }
 
 bool VsamFile::isStrValid(const LayoutItem &item, const std::string &str,
-                          std::string &errmsg) {
+                          const std::string &errPrefix, std::string &errmsg) {
   int len = str.length();
   if (len < item.minLength || len < 0) {
-    errmsg = "Error: length of '" + item.name + "' must be " +
+    errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
              std::to_string(item.minLength) + " or more.";
     return false;
   } else if (len == 0)
     return true;
   if (str.length() > item.maxLength) {
-    errmsg = "Error: length " + std::to_string(str.length()) + " of '" +
-             item.name.c_str() + "' exceeds schema's length " +
+    errmsg = errPrefix + " error: length " + std::to_string(str.length()) +
+             " of '" + item.name.c_str() + "' exceeds schema's length " +
              std::to_string(item.maxLength) + ".";
     return false;
   }
@@ -522,27 +551,29 @@ bool VsamFile::isStrValid(const LayoutItem &item, const std::string &str,
 }
 
 bool VsamFile::isHexBufValid(const LayoutItem &item, const char *buf, int len,
+                             const std::string &errPrefix,
                              std::string &errmsg) {
   if (len < item.minLength || len < 0) {
-    errmsg = "Error: length of '" + item.name + "' must be " +
+    errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
              std::to_string(item.minLength) + " or more.";
     return false;
   } else if (len == 0)
     return true;
   if (len > item.maxLength) {
-    errmsg = "Error: length " + std::to_string(len) + " of '" + item.name +
-             "' exceeds schema's length " + std::to_string(item.maxLength) +
-             ".";
+    errmsg = errPrefix + " error: length " + std::to_string(len) + " of '" +
+             item.name + "' exceeds schema's length " +
+             std::to_string(item.maxLength) + ".";
     return false;
   }
   return true;
 }
 
 bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
+                             const std::string &errPrefix,
                              std::string &errmsg) {
   int len = hexstr.length();
   if (len < item.minLength || len < 0) {
-    errmsg = "Error: length of '" + item.name + "' must be " +
+    errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
              std::to_string(item.minLength) + " or more.";
     return false;
   } else if (len == 0)
@@ -554,7 +585,7 @@ bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
     start = 1;
   }
   if (!std::all_of(hexstr.begin() + start, hexstr.end(), ::isxdigit)) {
-    errmsg = "Error: hex string for '" + item.name +
+    errmsg = errPrefix + " error: hex string for '" + item.name +
              "' must contain only hex digits 0-9 and a-f or A-F, with an "
              "optional 0x prefix, found <" +
              hexstr + ">.";
@@ -563,24 +594,25 @@ bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
   len -= start;
   int digits = (len + (len % 2)) / 2;
   if (digits > item.maxLength) {
-    errmsg = "Error: number of hex digits " + std::to_string(digits) +
-             " for '" + item.name + "' exceed schema's length " +
-             std::to_string(item.maxLength) + ", found <" + hexstr + ">.";
+    errmsg = errPrefix + " error: number of hex digits " +
+             std::to_string(digits) + " for '" + item.name +
+             "' exceed schema's length " + std::to_string(item.maxLength) +
+             ", found <" + hexstr + ">.";
     return false;
   }
   return true;
 }
 
 static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
-                                   const char *title) {
+                                   int r15, const std::string &errPrefix) {
   // err is errno, err2 is __errno2()
-  errmsg = title;
+  errmsg = errPrefix;
   std::string e(strerror(err));
   if (!e.empty())
     errmsg += ": " + e;
-  if (err2) {
-    char ebuf[32];
-    sprintf(ebuf, " (errno2=0x%08x)", err2);
+  if (err2 || r15) {
+    char ebuf[64];
+    sprintf(ebuf, " (R15=%d, errno2=0x%08x)", R15, err2);
     errmsg += ebuf;
   }
   errmsg += '.';

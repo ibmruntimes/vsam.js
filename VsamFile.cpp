@@ -94,7 +94,7 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
     fprintf(stderr, "%02x ", buf[i]);
   fprintf(stderr, "\n");
 #endif
-  pdata->rc_ = flocate(stream_, buf, key_layout.maxLength, pdata->equality_);
+  pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
   r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);

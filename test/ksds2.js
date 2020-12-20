@@ -398,7 +398,7 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("delete existing record, then find it and verify error", function(done) {
+  it("delete existing record, then find it and verify error, then delete it and verify error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
 //  const keybuf = Buffer.from([0xa1, 0xb2, 0xc3, 0xd4]);
@@ -411,9 +411,14 @@ describe("Key Sequenced Dataset #2", function() {
       file.delete( (err) => {
         assert.ifError(err);
         file.find("a1b2c3d4", (record, err) => {
-          assert.equal(record, null, "deleted record not found"); 
-          expect(file.close()).to.not.throw;
-          done();
+          assert.equal(err, "no record found", "correct error message"); 
+          assert.equal(record, null);
+
+          file.delete("a1b2c3d4", (err) => {
+            assert.equal(err, "no record found with the key for delete");
+            expect(file.close()).to.not.throw;
+            done();
+          });
         });
       });
     });
@@ -536,7 +541,7 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("find and update in one call using update()", function(done) {
+  it("find and update in one call using update(), also verify no record found error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     record = {
@@ -546,12 +551,15 @@ describe("Key Sequenced Dataset #2", function() {
     // update() doesn't require a record arg in the callback; for that use findUpdate() as below
     file.update("f1f2f3f4", record, (err) => {
       assert.ifError(err);
-      expect(file.close()).to.not.throw;
-      done();
+      file.update("f1f2f3f499", record, (err) => {
+        assert.equal(err, "no record found with the key for update");
+        expect(file.close()).to.not.throw;
+        done();
+      });
     });
   });
 
-  it("find and update in one call using findUpdate()", function(done) {
+  it("find and update in one call using findUpdate(), also verify no record found error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     // verify record previously updated with find-update after file close/open
@@ -572,8 +580,13 @@ describe("Key Sequenced Dataset #2", function() {
         assert.equal(newrec.name, "diane", "correct name returned in updated record");
         assert.equal(newrec.amount, "12", "correct amount returned in updated record");
 
-        expect(file.close()).to.not.throw;
-        done();
+        // independant test (of above) for no record found
+        file.findUpdate("f1f2f3f4f5", record, (newrec, err) => {
+          assert.equal(err, "no record found with the key for update");
+          assert.equal(newrec, null);
+          expect(file.close()).to.not.throw;
+          done();
+        });
       });
     });
   });
@@ -589,12 +602,13 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("find and delete in one call using findDelete()", function(done) {
+  it("find and delete in one call using findDelete(), also verify no record found error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
     // verify record previously deleted with find-delete after file close/open
     file.find("e5f6789afabc", (record, err) => {
-      assert.equal(record, null, "deleted record not found"); 
+      assert.equal(err, "no record found");
+      assert.equal(record, null);
 
       const keybuf = Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd0]);
       file.findDelete(keybuf, keybuf.length, (delrec, err) => {
@@ -607,8 +621,13 @@ describe("Key Sequenced Dataset #2", function() {
           assert.equal(delrec.name, "TEST", "correct name returned in deleted record");
           assert.equal(delrec.amount, "0123456789000198", "correct amount returned in deleted record");
 
-          expect(file.close()).to.not.throw;
-          done();
+          // independant test (of above) for no record found
+          file.findDelete("f1f2f3f4f5f6", (delrec, err) => {
+            assert.equal(err, "no record found with the key for delete");
+            assert.equal(delrec, null);
+            expect(file.close()).to.not.throw;
+            done();
+          });
         });
       });
     });

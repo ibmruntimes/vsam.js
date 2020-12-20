@@ -28,7 +28,7 @@ static void print_amrc() {
 
 void VsamFile::FindExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
-  int rc;
+  int rc, r15;
   const char *buf;
   int buflen;
   const LayoutItem &key_layout = layout_[key_i_];
@@ -66,6 +66,7 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
       fprintf(stderr, "\n");
 #endif
       pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
+      r15 = R15;
 #ifdef DEBUG
       fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
 #endif
@@ -93,7 +94,8 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
     fprintf(stderr, "%02x ", buf[i]);
   fprintf(stderr, "\n");
 #endif
-  pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
+  pdata->rc_ = flocate(stream_, buf, key_layout.maxLength, pdata->equality_);
+  r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
 #endif
@@ -116,6 +118,13 @@ chk:
     pdata->rc_ = 1;
     createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
                    "find error: record found but could not be read");
+  } else if (r15 == 8) {
+    pdata->errmsg_ = "no record found";
+    // flocate() returns only 0 or EOF (-1)
+    pdata->rc_ = r15;
+  } else {
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "find error: flocate() failed");
   }
 }
 
@@ -130,8 +139,11 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
   pdata->recbuf_ = NULL;
   pdata->rc_ = 1;
   FindExecute(pdata);
-  if (pdata->rc_ != 0)
+  if (pdata->rc_ != 0) {
+    if (pdata->rc_ == 8)
+      pdata->errmsg_ = "no record found with the key for update";
     return;
+  }
   assert(pdata->pFieldsToUpdate_ != NULL);
   for (auto i = pdata->pFieldsToUpdate_->begin();
        i != pdata->pFieldsToUpdate_->end(); ++i) {
@@ -151,8 +163,11 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
 void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
   FindExecute(pdata);
-  if (pdata->rc_ != 0)
+  if (pdata->rc_ != 0) {
+    if (pdata->rc_ == 8)
+      pdata->errmsg_ = "no record found with the key for delete";
     return;
+  }
   pdata->rc_ = 1;
   DeleteExecute(pdata);
 }

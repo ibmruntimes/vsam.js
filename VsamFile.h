@@ -175,6 +175,7 @@ public:
 
 private:
   int setKeyRecordLengths(const std::string &errPrefix);
+  void getFindKey(char **ppbuf, int *pbuflen, UvWorkData *pdata);
 
 private:
   FILE *stream_;

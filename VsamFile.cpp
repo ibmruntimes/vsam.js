@@ -26,64 +26,68 @@ static void print_amrc() {
   printf("Last op = %d\n", currErr.__last_op);
 }
 
-void VsamFile::FindExecute(UvWorkData *pdata) {
-  DCHECK(pdata->rc_ != 0);
-  int rc, r15;
-  const char *buf;
-  int buflen;
+void VsamFile::getFindKey(char **pbuf, int *pbuflen, UvWorkData *pdata) {
   const LayoutItem &key_layout = layout_[key_i_];
 
   if (pdata->keybuf_) {
     DCHECK(pdata->keybuf_len_ > 0);
-    buf = pdata->keybuf_;
-    buflen = pdata->keybuf_len_;
+    *pbuf = pdata->keybuf_;
+    *pbuflen = pdata->keybuf_len_;
 #ifdef DEBUG
     fprintf(stderr,
             "FindExecute key_layout.maxLength=%d, pdata->keybuf_len_=%d, "
-            "buflen=%d, buf=",
-            key_layout.maxLength, pdata->keybuf_len_, buflen);
-    for (int i = 0; i < buflen; i++)
-      fprintf(stderr, "%02x ", buf[i]);
+            "buf=",
+            key_layout.maxLength, pdata->keybuf_len_);
+    for (int i = 0; i < *pbuflen; i++)
+      fprintf(stderr, "%02x ", (*pbuf)[i]);
     fprintf(stderr, "\n");
 #endif
-  } else if (pdata->equality_ != __KEY_FIRST &&
-             pdata->equality_ != __KEY_LAST) {
-    DCHECK(pdata->keystr_.length() > 0);
-    DCHECK(pdata->keybuf_len_ == 0);
-    if (key_layout.type == LayoutItem::HEXADECIMAL) {
-      DCHECK(key_layout.maxLength == keylen_ && keylen_ > 0);
-      char buf[key_layout.maxLength];
-      buflen = hexstrToBuffer(buf, sizeof(buf), pdata->keystr_.c_str());
+    return;
+  }
+  if (pdata->equality_ == __KEY_FIRST || pdata->equality_ == __KEY_LAST) {
+    *pbuflen = key_layout.maxLength;
+    *pbuf = NULL;
+    return;
+  }
+  DCHECK(pdata->keystr_.length() > 0);
+  DCHECK(pdata->keybuf_len_ == 0);
+  if (key_layout.type == LayoutItem::HEXADECIMAL) {
+    DCHECK(key_layout.maxLength == keylen_ && keylen_ > 0);
+    // caller frees *pbuf if != pdata->keystr.c_str() && != pdata->keybuf_
+    *pbuf = (char *)malloc(key_layout.maxLength);
+    *pbuflen =
+        hexstrToBuffer(*pbuf, key_layout.maxLength, pdata->keystr_.c_str());
 #ifdef DEBUG
-      fprintf(
-          stderr,
-          "FindExecute user string=<%s>, key_layout.maxLength=%d, keylen_=%d, "
-          "flocate(): stream=%p, tid=%d, buflen=%d, equality=%d, buf=",
-          pdata->keystr_.c_str(), key_layout.maxLength, keylen_, stream_,
-          gettid(), buflen, pdata->equality_);
-      for (int i = 0; i < buflen; i++)
-        fprintf(stderr, "%02x ", buf[i]);
-      fprintf(stderr, "\n");
+    fprintf(
+        stderr,
+        "FindExecute user string=<%s>, key_layout.maxLength=%d, keylen_=%d, "
+        "flocate(): stream=%p, tid=%d, buflen=%d, equality=%d, buf=",
+        pdata->keystr_.c_str(), key_layout.maxLength, keylen_, stream_,
+        gettid(), *pbuflen, pdata->equality_);
+    for (int i = 0; i < *pbuflen; i++)
+      fprintf(stderr, "%02x ", (*pbuf)[i]);
+    fprintf(stderr, "\n");
 #endif
-      pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
-      r15 = R15;
+  } else {
+    *pbuf = const_cast<char *>(pdata->keystr_.c_str());
+    *pbuflen = pdata->keystr_.length();
 #ifdef DEBUG
-      fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
+    fprintf(stderr, "FindExecute keystr_.length()=%d, buf=", *pbuflen);
+    for (int i = 0; i < buflen; i++)
+      fprintf(stderr, "%02x ", (*pbuf)[i]);
+    fprintf(stderr, "\n");
 #endif
-      goto chk;
-    } else {
-      buf = pdata->keystr_.c_str();
-      buflen = pdata->keystr_.length();
-#ifdef DEBUG
-      fprintf(stderr, "FindExecute keylen_=%d, buf=", keylen_);
-      for (int i = 0; i < buflen; i++)
-        fprintf(stderr, "%02x ", buf[i]);
-      fprintf(stderr, "\n");
-#endif
-    }
-  } else
-    buflen = key_layout.maxLength;
+  }
+}
 
+void VsamFile::FindExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  char *buf;
+  int buflen;
+
+  getFindKey(&buf, &buflen, pdata);
+
+  int rc, r15;
   DCHECK(buflen <= key_layout.maxLength);
 #ifdef DEBUG
   fprintf(stderr,
@@ -94,12 +98,17 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
     fprintf(stderr, "%02x ", buf[i]);
   fprintf(stderr, "\n");
 #endif
+
   pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
   r15 = R15;
 #ifdef DEBUG
-  fprintf(stderr, "FindExecute flocate() returned rc=%d\n", pdata->rc_);
+  fprintf(stderr, "FindExecute flocate() returned rc=%d, r15=%d\n", pdata->rc_,
+          r15);
 #endif
-chk:
+
+  if (buf != pdata->keystr_.c_str() && buf != pdata->keybuf_)
+    free(buf);
+
   DCHECK(pdata->recbuf_ == NULL);
   if (pdata->rc_ == 0) {
     pdata->recbuf_ = (char *)malloc(reclen_);

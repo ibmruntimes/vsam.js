@@ -62,7 +62,7 @@ struct UvWorkData {
       : pVsamFile_(pVsamFile), cb_(Napi::Persistent(cbfunc)), env_(env),
         path_(path), recbuf_(recbuf), keystr_(keystr), keybuf_(keybuf),
         keybuf_len_(keybuf_len), equality_(equality),
-        pFieldsToUpdate_(pFieldsToUpdate), rc_(1) {}
+        pFieldsToUpdate_(pFieldsToUpdate), count_(0), rc_(1) {}
 
   ~UvWorkData() {
     if (recbuf_) {
@@ -90,6 +90,7 @@ struct UvWorkData {
   int equality_;
   std::vector<FieldToUpdate> *pFieldsToUpdate_;
   int rc_;
+  int count_; // of records updated or deleted to report back
   std::string errmsg_;
 };
 
@@ -117,7 +118,7 @@ typedef struct {
 class VsamFile {
 public:
   VsamFile(const std::string &path, const std::vector<LayoutItem> &layout,
-           int key_i, const std::string &omode);
+           int key_i, int keypos, const std::string &omode);
   ~VsamFile();
 
   int getKeyNum() const { return key_i_; }
@@ -175,7 +176,9 @@ public:
 
 private:
   int setKeyRecordLengths(const std::string &errPrefix);
-  void getFindKey(char **ppbuf, int *pbuflen, UvWorkData *pdata);
+  void getFindKey(UvWorkData *pdata, char **ppbuf, int *pbuflen);
+  int FindExecute(UvWorkData *pdata, const char *buf, int buflen);
+  void displayRecord(const char *recbuf, const char *pPrefix);
 
 private:
   FILE *stream_;
@@ -185,7 +188,12 @@ private:
   int rc_;
   std::string errmsg_;
   int key_i_;
+  int keypos_;
   unsigned keylen_, reclen_;
+#ifdef DEBUG_CRUD
+  // to read the record before delete((err)) for display
+  fpos_t freadpos_; // =fgetpos() before fread()
+#endif
 
 private:
   // These are used only if dataset is opened in read/write mode:

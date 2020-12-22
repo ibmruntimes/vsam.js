@@ -60,20 +60,46 @@ void WrappedVsam::DefaultComplete(uv_work_t *req, int status) {
   delete pdata;
 }
 
+void WrappedVsam::FindUpdateComplete(uv_work_t *req, int status) {
+  UvWorkData *pdata = (UvWorkData *)(req->data);
+  delete req;
+
+  if (status == UV_ECANCELED) {
+    delete pdata;
+    return;
+  }
+  Napi::HandleScope scope(pdata->env_);
+  DCHECK(pdata->cb_ != NULL && pdata->env_ != NULL);
+  if (pdata->rc_ != 0)
+    // even on error, 1 or more records may have been updated before the error
+    pdata->cb_.Call(pdata->env_.Global(),
+                    {Napi::Number::New(pdata->env_, pdata->count_),
+                     Napi::String::New(pdata->env_, pdata->errmsg_)});
+  else
+    pdata->cb_.Call(
+        pdata->env_.Global(),
+        {Napi::Number::New(pdata->env_, pdata->count_), pdata->env_.Null()});
+  delete pdata;
+}
+
+void WrappedVsam::FindDeleteComplete(uv_work_t *req, int status) {
+  FindUpdateComplete(req, status);
+}
+
 void WrappedVsam::DeleteComplete(uv_work_t *req, int status) {
-  return DefaultComplete(req, status);
+  DefaultComplete(req, status);
 }
 
 void WrappedVsam::WriteComplete(uv_work_t *req, int status) {
-  return DefaultComplete(req, status);
+  DefaultComplete(req, status);
 }
 
 void WrappedVsam::UpdateComplete(uv_work_t *req, int status) {
-  return DefaultComplete(req, status);
+  DefaultComplete(req, status);
 }
 
 void WrappedVsam::DeallocComplete(uv_work_t *req, int status) {
-  return DefaultComplete(req, status);
+  DefaultComplete(req, status);
 }
 
 void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
@@ -203,12 +229,12 @@ void WrappedVsam::DeallocExecute(uv_work_t *req) {
 
 WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<WrappedVsam>(info) {
-  if (info.Length() != 5) {
+  if (info.Length() != 6) {
     Napi::HandleScope scope(info.Env());
     throwError(
         info, -1, true, //-1 throws an exception, not callback
         "Internal Error: wrong number of arguments to WrappedVsam constructor: "
-        "got %d, expected 5.",
+        "got %d, expected 6.",
         info.Length());
     return;
   }
@@ -219,11 +245,12 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
   std::vector<LayoutItem> layout =
       *(static_cast<std::vector<LayoutItem> *>(b.Data()));
   int key_i = static_cast<int>(info[2].As<Napi::Number>().Int32Value());
+  int keypos = static_cast<int>(info[3].As<Napi::Number>().Int32Value());
   const std::string &omode =
-      static_cast<std::string>(info[3].As<Napi::String>());
-  bool alloc(static_cast<bool>(info[4].As<Napi::Boolean>()));
+      static_cast<std::string>(info[4].As<Napi::String>());
+  bool alloc(static_cast<bool>(info[5].As<Napi::Boolean>()));
 
-  pVsamFile_ = new VsamFile(path_, layout, key_i, omode);
+  pVsamFile_ = new VsamFile(path_, layout, key_i, keypos, omode);
 #if defined(DEBUG) || defined(XDEBUG)
   fprintf(stderr, "WrappedVsam this=%p created pVsamFile_=%p\n", this,
           pVsamFile_);
@@ -311,6 +338,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
   const Napi::Array &properties = schema.GetPropertyNames();
   std::vector<LayoutItem> layout;
   int key_i = 0; // for its data type - default to first field if no "key" found
+  int curpos = 0, keypos = 0;
 
   for (int i = 0; i < properties.Length(); ++i) {
     std::string name(static_cast<std::string>(
@@ -396,6 +424,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
       }
       if (!strcmp(name.c_str(), "key")) {
         key_i = i;
+        keypos = curpos;
       }
     } else {
       throwError(
@@ -405,8 +434,8 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
           pApiName, i + 1);
       return env.Null().ToObject();
     }
+    curpos += maxLength;
   }
-
   const Napi::Object &item =
       schema.Get(properties.Get(key_i)).As<Napi::Object>();
   DCHECK(!item.IsEmpty());
@@ -426,8 +455,8 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
   Napi::Object obj = constructor_.New(
       {Napi::String::New(env, path),
        Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
-       Napi::Number::New(env, key_i), Napi::String::New(env, mode),
-       Napi::Boolean::New(env, alloc)});
+       Napi::Number::New(env, key_i), Napi::Number::New(env, keypos),
+       Napi::String::New(env, mode), Napi::Boolean::New(env, alloc)});
   std::string errmsg;
   WrappedVsam *p = Napi::ObjectWrap<WrappedVsam>::Unwrap(obj);
   if (!p || !p->pVsamFile_ || p->pVsamFile_->getLastError(errmsg) ||
@@ -810,16 +839,17 @@ void WrappedVsam::FindUpdate(const Napi::CallbackInfo &info) {
   FindUpdate_(info, true);
 }
 
-void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info, bool isRecInCB) {
+void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
+                              bool isCountInCB) {
   /*
    * This is also used by Update if the arguments indicate a find-update,
-   * however the user's update() API doesn't require a record arg in its
-   * callback (hence isRecInCB=false), while findUpdate() does.
+   * however the user's update() API doesn't require a count arg in its
+   * callback (hence isCountInCB=false), while findUpdate() does.
    */
   Napi::HandleScope scope(info.Env());
-  int errArg = isRecInCB ? 1 : 0;
+  int errArg = isCountInCB ? 1 : 0;
   int recArg, cbArg;
-  const char *pApiName = isRecInCB ? "findUpdate" : "update";
+  const char *pApiName = isCountInCB ? "findUpdate" : "update";
   if (info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
       info[2].IsFunction()) {
     recArg = 1;
@@ -885,23 +915,24 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info, bool isRecInCB) {
     }
   }
   Find(info, __KEY_EQ, "findUpdate", cbArg, FindUpdateExecute,
-       isRecInCB ? ReadComplete : DefaultComplete, recbuf, pupd);
+       isCountInCB ? FindUpdateComplete : DefaultComplete, recbuf, pupd);
 }
 
 void WrappedVsam::FindDelete(const Napi::CallbackInfo &info) {
   FindDelete_(info, true);
 }
 
-void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info, bool isRecInCB) {
+void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,
+                              bool isCountInCB) {
   /*
    * This is also used by Delete if the arguments indicate a find-delete,
-   * however the user's delete() API doesn't require a record arg in its
-   * callback (hence isRecInCB=false), while findDelete() does.
+   * however the user's delete() API doesn't require a count arg in its
+   * callback (hence isCountInCB=false), while findDelete() does.
    */
   Napi::HandleScope scope(info.Env());
-  int errArg = isRecInCB ? 1 : 0;
+  int errArg = isCountInCB ? 1 : 0;
   int recArg, cbArg;
-  const char *pApiName = isRecInCB ? "findDelete" : "delete";
+  const char *pApiName = isCountInCB ? "findDelete" : "delete";
   if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) {
     cbArg = 1;
   } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
@@ -917,5 +948,5 @@ void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info, bool isRecInCB) {
   }
 
   Find(info, __KEY_EQ, "findDelete", cbArg, FindDeleteExecute,
-       isRecInCB ? ReadComplete : DefaultComplete);
+       isCountInCB ? FindDeleteComplete : DefaultComplete);
 }

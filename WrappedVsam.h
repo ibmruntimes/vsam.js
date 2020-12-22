@@ -38,9 +38,9 @@ private:
   void FindLast(const Napi::CallbackInfo &info);
   void Update(const Napi::CallbackInfo &info);
   void FindUpdate(const Napi::CallbackInfo &info);
-  void FindUpdate_(const Napi::CallbackInfo &info, bool isRecInCB = true);
+  void FindUpdate_(const Napi::CallbackInfo &info, bool isCountInCB = true);
   void FindDelete(const Napi::CallbackInfo &info);
-  void FindDelete_(const Napi::CallbackInfo &info, bool isRecInCB = true);
+  void FindDelete_(const Napi::CallbackInfo &info, bool isCountInCB = true);
   void Write(const Napi::CallbackInfo &info);
   void Delete(const Napi::CallbackInfo &info);
   void Dealloc(const Napi::CallbackInfo &info);
@@ -60,6 +60,8 @@ private:
   static void DeallocComplete(uv_work_t *req, int status);
   static void ReadComplete(uv_work_t *req, int status);
   static void UpdateComplete(uv_work_t *req, int status);
+  static void FindUpdateComplete(uv_work_t *req, int status);
+  static void FindDeleteComplete(uv_work_t *req, int status);
   static void WriteComplete(uv_work_t *req, int status);
   static void DeleteComplete(uv_work_t *req, int status);
 

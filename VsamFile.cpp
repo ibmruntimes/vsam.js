@@ -26,61 +26,6 @@ static void print_amrc() {
   printf("Last op = %d\n", currErr.__last_op);
 }
 
-void VsamFile::getFindKey(UvWorkData *pdata, char **pbuf, int *pbuflen) {
-  const LayoutItem &key_layout = layout_[key_i_];
-
-  if (pdata->keybuf_) {
-    DCHECK(pdata->keybuf_len_ > 0);
-    *pbuf = pdata->keybuf_;
-    *pbuflen = pdata->keybuf_len_;
-#ifdef DEBUG
-    fprintf(stderr,
-            "FindExecute key_layout.maxLength=%d, pdata->keybuf_len_=%d, "
-            "buf=",
-            key_layout.maxLength, pdata->keybuf_len_);
-    for (int i = 0; i < *pbuflen; i++)
-      fprintf(stderr, "%02x ", (*pbuf)[i]);
-    fprintf(stderr, "\n");
-#endif
-    return;
-  }
-  if (pdata->equality_ == __KEY_FIRST || pdata->equality_ == __KEY_LAST) {
-    *pbuflen = key_layout.maxLength;
-    *pbuf = NULL;
-    return;
-  }
-  DCHECK(pdata->keystr_.length() > 0);
-  DCHECK(pdata->keybuf_len_ == 0);
-
-  if (key_layout.type == LayoutItem::HEXADECIMAL) {
-    DCHECK(key_layout.maxLength == keylen_ && keylen_ > 0);
-    // caller frees *pbuf if != pdata->keystr.c_str() && != pdata->keybuf_
-    *pbuf = (char *)malloc(key_layout.maxLength);
-    *pbuflen =
-        hexstrToBuffer(*pbuf, key_layout.maxLength, pdata->keystr_.c_str());
-#ifdef DEBUG
-    fprintf(
-        stderr,
-        "FindExecute user string=<%s>, key_layout.maxLength=%d, keylen_=%d, "
-        "flocate(): stream=%p, tid=%d, buflen=%d, equality=%d, buf=",
-        pdata->keystr_.c_str(), key_layout.maxLength, keylen_, stream_,
-        gettid(), *pbuflen, pdata->equality_);
-    for (int i = 0; i < *pbuflen; i++)
-      fprintf(stderr, "%02x ", (*pbuf)[i]);
-    fprintf(stderr, "\n");
-#endif
-  } else {
-    *pbuf = const_cast<char *>(pdata->keystr_.c_str());
-    *pbuflen = pdata->keystr_.length();
-#ifdef DEBUG
-    fprintf(stderr, "FindExecute keystr_.length()=%d, buf=", *pbuflen);
-    for (int i = 0; i < *pbuflen; i++)
-      fprintf(stderr, "%02x ", (*pbuf)[i]);
-    fprintf(stderr, "\n");
-#endif
-  }
-}
-
 int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
   DCHECK(pdata->recbuf_ != NULL);
 #ifdef DEBUG
@@ -130,16 +75,11 @@ int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
 void VsamFile::FindExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
   char *buf;
-  int buflen;
-  getFindKey(pdata, &buf, &buflen);
 
   DCHECK(pdata->recbuf_ == NULL);
   pdata->recbuf_ = (char *)malloc(reclen_);
   DCHECK(pdata->recbuf_ != NULL);
-  FindExecute(pdata, buf, buflen);
-
-  if (buf != pdata->keystr_.c_str() && buf != pdata->keybuf_)
-    free(buf);
+  FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
 }
 
 void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
@@ -152,11 +92,7 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
   DCHECK(pupdrecbuf != NULL);
   memcpy(pupdrecbuf, pdata->recbuf_, reclen_);
 
-  char *keybuf;
-  int keybuflen;
-  getFindKey(pdata, &keybuf, &keybuflen);
-
-  pdata->rc_ = FindExecute(pdata, keybuf, keybuflen);
+  pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
   int nread, r15;
 
   for (pdata->count_ = 0; pdata->rc_ == 0;) {
@@ -193,15 +129,13 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
 #if defined(DEBUG) || defined(DEBUG_CRUD)
     displayRecord(pdata->recbuf_, "fread() in FindUpdate");
 #endif
-    if (memcmp(pdata->recbuf_ + keypos_, keybuf, keybuflen)) {
+    if (memcmp(pdata->recbuf_ + keypos_, pdata->keybuf_, pdata->keybuf_len_)) {
 #ifdef DEBUG
       fprintf(stderr, "FindUpdateExecute: record doesn't match, stop\n");
 #endif
       break;
     }
   }
-  if (keybuf != pdata->keystr_.c_str() && keybuf != pdata->keybuf_)
-    free(keybuf);
   free(pupdrecbuf);
 
   if (pdata->rc_ == 8) {
@@ -217,15 +151,11 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
 void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
 
-  char *keybuf;
-  int keybuflen;
-  getFindKey(pdata, &keybuf, &keybuflen);
-
   DCHECK(pdata->recbuf_ == NULL);
   pdata->recbuf_ = (char *)malloc(reclen_);
   DCHECK(pdata->recbuf_ != NULL);
 
-  pdata->rc_ = FindExecute(pdata, keybuf, keybuflen);
+  pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
   int nread, r15;
 
   for (pdata->count_ = 0; pdata->rc_ == 0;) {
@@ -250,15 +180,13 @@ void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
 #if defined(DEBUG) || defined(DEBUG_CRUD)
     displayRecord(pdata->recbuf_, "fread() in FindDelete");
 #endif
-    if (memcmp(pdata->recbuf_ + keypos_, keybuf, keybuflen)) {
+    if (memcmp(pdata->recbuf_ + keypos_, pdata->keybuf_, pdata->keybuf_len_)) {
 #ifdef DEBUG
       fprintf(stderr, "FindDeleteExecute: record doesn't match, stop\n");
 #endif
       break;
     }
   }
-  if (keybuf != pdata->keystr_.c_str() && keybuf != pdata->keybuf_)
-    free(keybuf);
 
   if (pdata->rc_ == 8) {
     if (pdata->count_ == 0)

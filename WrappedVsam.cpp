@@ -759,14 +759,20 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
           throwError(info, 1, true, errmsg.c_str());
           return;
         }
+        keybuf = (char *)malloc(layout[key_i].maxLength);
+        keybuf_len = VsamFile::hexstrToBuffer(keybuf, layout[key_i].maxLength,
+                                              key.c_str());
       } else {
         if (!VsamFile::isStrValid(layout[key_i], key, pApiName, errmsg)) {
           throwError(info, 1, true, errmsg.c_str());
           return;
         }
+        keybuf = (char *)malloc(layout[key_i].maxLength);
+        keybuf_len = key.length();
+        memcpy(keybuf, key.c_str(), keybuf_len);
       }
     } else if (info[0].IsObject()) {
-      const char *buf = info[0].As<Napi::Buffer<char>>().Data();
+      const char *ubuf = info[0].As<Napi::Buffer<char>>().Data();
       if (!info[1].IsNumber()) {
         throwError(info, 1, true,
                    "%s error: buffer argument must be followed by its length.",
@@ -774,7 +780,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
         return;
       }
       keybuf_len = info[1].As<Napi::Number>().Uint32Value();
-      if (!VsamFile::isHexBufValid(layout[key_i], buf, keybuf_len, pApiName,
+      if (!VsamFile::isHexBufValid(layout[key_i], ubuf, keybuf_len, pApiName,
                                    errmsg)) {
         throwError(info, 1, true, errmsg.c_str());
         return;
@@ -782,7 +788,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
       DCHECK(keybuf_len > 0);
       keybuf = (char *)malloc(keybuf_len);
       DCHECK(keybuf != NULL);
-      memcpy(keybuf, buf, keybuf_len);
+      memcpy(keybuf, ubuf, keybuf_len);
     } else {
       throwError(info, 1, true,
                  "%s error: first argument must be "
@@ -795,9 +801,8 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[callbackArg].As<Napi::Function>();
 
-  request->data =
-      new UvWorkData(pVsamFile_, cb, info.Env(), "", pUpdateRecBuf, key, keybuf,
-                     keybuf_len, equality, pFieldsToUpdate);
+  request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", pUpdateRecBuf,
+                                 keybuf, keybuf_len, equality, pFieldsToUpdate);
 
   uv_queue_work(uv_default_loop(), request, pExecuteFunc, pCompleteFunc);
 }
@@ -805,7 +810,8 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
 void WrappedVsam::Read(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 1, true, "read error: read() expects argument: (record, err).");
+    throwError(info, 1, true,
+               "read error: read() expects argument: (record, err).");
     return;
   }
   uv_work_t *request = new uv_work_t;

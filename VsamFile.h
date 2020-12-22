@@ -56,13 +56,12 @@ class VsamFile;
 struct UvWorkData {
   UvWorkData(VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env,
              const std::string &path = "", char *recbuf = NULL,
-             const std::string &keystr = "", char *keybuf = NULL,
-             int keybuf_len = 0, int equality = 0,
+             char *keybuf = NULL, int keybuf_len = 0, int equality = 0,
              std::vector<FieldToUpdate> *pFieldsToUpdate = NULL)
       : pVsamFile_(pVsamFile), cb_(Napi::Persistent(cbfunc)), env_(env),
-        path_(path), recbuf_(recbuf), keystr_(keystr), keybuf_(keybuf),
-        keybuf_len_(keybuf_len), equality_(equality),
-        pFieldsToUpdate_(pFieldsToUpdate), count_(0), rc_(1) {}
+        path_(path), recbuf_(recbuf), keybuf_(keybuf), keybuf_len_(keybuf_len),
+        equality_(equality), pFieldsToUpdate_(pFieldsToUpdate), count_(0),
+        rc_(1) {}
 
   ~UvWorkData() {
     if (recbuf_) {
@@ -84,7 +83,6 @@ struct UvWorkData {
   Napi::Env env_;
   std::string path_;
   char *recbuf_;
-  std::string keystr_;
   char *keybuf_;
   int keybuf_len_;
   int equality_;
@@ -176,7 +174,6 @@ public:
 
 private:
   int setKeyRecordLengths(const std::string &errPrefix);
-  void getFindKey(UvWorkData *pdata, char **ppbuf, int *pbuflen);
   int FindExecute(UvWorkData *pdata, const char *buf, int buflen);
   void displayRecord(const char *recbuf, const char *pPrefix);
 

@@ -547,9 +547,9 @@ void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
   if (info.Length() != 1 || !info[0].IsFunction()) {
     throwError(info, 0, true,
                "delete error: delete() expects arguments: "
-               "callback, or: "
-               "key-string, callback, or: "
-               "key-buffer, key-buffer-length, callback.");
+               "(err), or: "
+               "key-string, (count, err), or: "
+               "key-buffer, key-buffer-length, (count, err).");
     return;
   }
   uv_work_t *request = new uv_work_t;
@@ -562,7 +562,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
     throwError(info, 0, true,
-               "write error: write() expects arguments: record, callback.");
+               "write error: write() expects arguments: record, (err).");
     return;
   }
   const Napi::Object &record = info[0].ToObject();
@@ -636,9 +636,9 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
     throwError(info, 0, true,
                "update error: update() expects arguments: "
-               "record, callback, "
-               "or: key-buffer [,key-buffer-length], record, callback, "
-               "or: key-string, record, callback.");
+               "record, (err), "
+               "or: key-string, record, (count, err), "
+               "or: key-buffer [,key-buffer-length], record, (count, err).");
     return;
   }
 
@@ -700,8 +700,8 @@ void WrappedVsam::FindEq(const Napi::CallbackInfo &info) {
   else
     throwError(info, 1, true,
                "find error: find() expects arguments: "
-               "or key-string, callback, "
-               "or key-buffer, key-buffer-length, callback.");
+               "or key-string, (record, err), "
+               "or key-buffer, key-buffer-length, (record, err).");
 }
 
 void WrappedVsam::FindGe(const Napi::CallbackInfo &info) {
@@ -715,8 +715,8 @@ void WrappedVsam::FindGe(const Napi::CallbackInfo &info) {
   else
     throwError(info, 1, true,
                "findge error: findge() expects arguments: "
-               "or key-string, callback, "
-               "or key-buffer, key-buffer-length, callback.");
+               "or key-string, (record, err), "
+               "or key-buffer, key-buffer-length, (record, err).");
 }
 
 void WrappedVsam::FindFirst(const Napi::CallbackInfo &info) {
@@ -724,7 +724,7 @@ void WrappedVsam::FindFirst(const Napi::CallbackInfo &info) {
     Find(info, __KEY_FIRST, "findfirst", 0);
   else
     throwError(info, 1, true,
-               "findfirst error: findfirst() expects argument: callback.");
+               "findfirst error: findfirst() expects argument: (record, err).");
 }
 
 void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
@@ -732,7 +732,7 @@ void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
     Find(info, __KEY_LAST, "findlast", 0);
   else
     throwError(info, 1, true,
-               "findlast error: findlast() expects argument: callback.");
+               "findlast error: findlast() expects argument: (record, err).");
 }
 
 void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
@@ -805,7 +805,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
 void WrappedVsam::Read(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 1, true, "read error: read() expects argument: callback.");
+    throwError(info, 1, true, "read error: read() expects argument: (record, err).");
     return;
   }
   uv_work_t *request = new uv_work_t;
@@ -818,7 +818,7 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
     throwError(info, 0, true,
-               "dealloc error: dealloc() expects argument: callback.");
+               "dealloc error: dealloc() expects argument: (err).");
     return;
   }
   if (pVsamFile_ && pVsamFile_->isDatasetOpen()) {
@@ -861,8 +861,8 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
   } else {
     throwError(info, errArg, true,
                "%s error: %s() expects arguments: "
-               "key-string, record, callback, or: "
-               "key-buffer, key-buffer-length, record, callback.",
+               "key-string, record, (count, err), or: "
+               "key-buffer, key-buffer-length, record, (count, err).",
                pApiName, pApiName);
     return;
   }
@@ -941,8 +941,8 @@ void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,
   } else {
     throwError(info, errArg, true,
                "%s error: %s() expects arguments: "
-               "key-string, callback, or: "
-               "key-buffer, key-buffer-length, callback.",
+               "key-string, (count, err), or: "
+               "key-buffer, key-buffer-length, (count, err).",
                pApiName, pApiName);
     return;
   }

@@ -267,7 +267,7 @@ describe("Key Sequenced Dataset #2", function() {
       done();
     });
   });
-//for (i=0; i<2000; i++) {
+
   it("verify find, findlast, findfirst, findge followed by a bunch of write/update/find/delete", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
@@ -354,7 +354,7 @@ describe("Key Sequenced Dataset #2", function() {
       });
     });
   });
-//}
+
   it("write new record after read", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
@@ -574,16 +574,13 @@ describe("Key Sequenced Dataset #2", function() {
         amount: "12"
       };
       const keybuf = Buffer.from([0xA9, 0, 0xB2, 0xF4, 0xfa, 0xbc, 0, 0xe9]);
-      file.findUpdate(keybuf, keybuf.length, record2, (newrec, err) => {
+      file.findUpdate(keybuf, keybuf.length, record2, (count, err) => {
         assert.ifError(err);
-        assert.equal(newrec.key, "a900b2f4fabc00e9", "correct key returned in updated record");
-        assert.equal(newrec.name, "diane", "correct name returned in updated record");
-        assert.equal(newrec.amount, "12", "correct amount returned in updated record");
 
         // independant test (of above) for no record found
-        file.findUpdate("f1f2f3f4f5", record, (newrec, err) => {
+        file.findUpdate("f1f2f3f4f5", record, (count, err) => {
           assert.equal(err, "no record found with the key for update");
-          assert.equal(newrec, null);
+          assert.equal(count, 0);
           expect(file.close()).to.not.throw;
           done();
         });
@@ -611,26 +608,197 @@ describe("Key Sequenced Dataset #2", function() {
       assert.equal(record, null);
 
       const keybuf = Buffer.from([0xe5, 0xf6, 0x78, 0x9a, 0xfa, 0xbc, 0xd0]);
-      file.findDelete(keybuf, keybuf.length, (delrec, err) => {
-        assert.equal(delrec, null, "deleted record not found"); 
+      file.findDelete(keybuf, keybuf.length, (count, err) => {
+        assert.equal(count, 0);
 
         // find and delete another record using findDelete() with key-string:
-        file.findDelete("f1f2f3f4", (delrec, err) => {
+        file.findDelete("f1f2f3f4", (count, err) => {
           assert.ifError(err);
-          assert.equal(delrec.key, "f1f2f3f4", "correct key returned in deleted record");
-          assert.equal(delrec.name, "TEST", "correct name returned in deleted record");
-          assert.equal(delrec.amount, "0123456789000198", "correct amount returned in deleted record");
+          assert.equal(count, 1);
 
           // independant test (of above) for no record found
-          file.findDelete("f1f2f3f4f5f6", (delrec, err) => {
+          file.findDelete("f1f2f3f4f5f6", (count, err) => {
             assert.equal(err, "no record found with the key for delete");
-            assert.equal(delrec, null);
+            assert.equal(count, 0);
             expect(file.close()).to.not.throw;
             done();
           });
         });
       });
     });
+  });
+
+  it("reads all records until the end", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    readUntilEnd(file, done);
+  });
+
+  it("write new records to test multiple find-update and find-delete", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    record = { key: "f1f2f3f4f5f6f7f8", name: "name 12341", amount: "f1f2f3f4f5f6f7f8" };
+    file.write(record, (err) => {
+      assert.ifError(err);
+      record = { key: "a1a2a3a4a5a6a7a8", name: "name 12341", amount: "a1f2f3f4f5f6f7f8" };
+      file.write(record, (err) => {
+        assert.ifError(err);
+        record = { key: "a1a2a3a4b5b6b7b8", name: "name 2342", amount: "b1b2b3b4f5f6f7f8" };
+        file.write(record, (err) => {
+          assert.ifError(err);
+          record = { key: "c1c2c3c4a5a6a7a8", name: "name 32343", amount: "b1b2b3f4c5f6f7f8" };
+          file.write(record, (err) => {
+            assert.ifError(err);
+            record = { key: "b1b2b3b4c5b6b7b8", name: "name 42344", amount: "c1c2c3c4f5f6f7f8" };
+            file.write(record, (err) => {
+              assert.ifError(err);
+              record = { key: "a1a2a3a4", name: "name 52345", amount: "d1d2d3f4f5f6f7f8" };
+              file.write(record, (err) => {
+                assert.ifError(err);
+                record = { key: "a1a2a3a4b5b6b7", name: "name 62", amount: "e1b2b3b4f5f6f7f8" };
+                file.write(record, (err) => {
+                  assert.ifError(err);
+                  record = { key: "c1c2c3c4a5a", name: "name 72347", amount: "f1a2a3f4c5" };
+                  file.write(record, (err) => {
+                    assert.ifError(err);
+                    record = { key: "b1b2b3b4", name: "name 82348", amount: "c1c2c3c4f5f6f7f8" };
+                    file.write(record, (err) => {
+                      assert.ifError(err);
+
+                      expect(file.close()).to.not.throw;
+                      done();
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+
+  it("write more new records to test multiple find-update and find-delete", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    record = { key: "f1f2f3f4", name: "name 12341", amount: "" };
+    file.write(record, (err) => {
+      assert.ifError(err);
+      record = { key: "f1f2f3f4f5f6f7", name: "NAME 12341", amount: "a1f2f3f400f6f7" };
+      file.write(record, (err) => {
+        assert.ifError(err);
+        record = { key: "f1f2f3f4b5b6b7b8", name: "NAME 2342", amount: "00b3b4f5f6f7f8" };
+        file.write(record, (err) => {
+          assert.ifError(err);
+          record = { key: "c2c3c4a5a6a7a8", name: "NAME 32343", amount: "00b2b3f4c5f6f7f8" };
+          file.write(record, (err) => {
+            assert.ifError(err);
+            record = { key: "b3b4c5b6b7b8", name: "NAME 42344", amount: "c3c4f5f6f7f8" };
+            file.write(record, (err) => {
+              assert.ifError(err);
+              record = { key: "a1", name: "NAME 52345", amount: "d1d2d3f4f5f6f7f8" };
+              file.write(record, (err) => {
+                assert.ifError(err);
+                record = { key: "a2", name: "NAME 62", amount: "e1b2b3b4f5f6f7f8" };
+                file.write(record, (err) => {
+                  assert.ifError(err);
+                  record = { key: "a3", name: "NAME 72347", amount: "f1a2a3f4c5" };
+                  file.write(record, (err) => {
+                    assert.ifError(err);
+                    record = { key: "b1b2", name: "NAME 82348", amount: "c3c4f5f6f7f8" };
+                    file.write(record, (err) => {
+                      assert.ifError(err);
+                      expect(file.close()).to.not.throw;
+                      done();
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+
+  it("test multiple find-update and find-delete", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    record = { name: "12341 nam", amount: "00234567890abcde" };
+    file.findUpdate("f1f2f3f4", record, (count, err) => {
+      assert.ifError(err);
+      assert.equal(count, 4);
+
+      file.findUpdate("a100000000000000", record, (count, err) => {
+        assert.ifError(err);
+        assert.equal(count, 1);
+
+        file.findDelete("a1a2a3a4b5", (count, err) => {
+          assert.ifError(err);
+          assert.equal(count, 2);
+
+          // no count for this update version:
+          file.update("a1a2a3a4", record, (err) => {
+            assert.ifError(err);
+
+            file.find("a1a2a3a4", (record, err) => {
+              assert.ifError(err);
+              assert.equal(record.key, "a1a2a3a4");
+              assert.equal(record.name, "12341 nam");
+              assert.equal(record.amount, "00234567890abcde");
+
+              file.read( (record, err) => {
+                assert.ifError(err);
+                assert.equal(record.key, "a1a2a3a4a5a6a7a8");
+                assert.equal(record.name, "12341 nam");
+                assert.equal(record.amount, "00234567890abcde");
+
+                // no count for this delete version:
+                file.delete("b1b2", (err) => {
+                  assert.ifError(err);
+                  file.find("b1b2", (record, err) => {
+                    assert.equal(err, "no record found");
+
+                    file.findDelete("b3b4c5b6b7b8", (count, err) => {
+                      assert.ifError(err);
+                      assert.equal(count, 1);
+
+                      file.findDelete("f1f2f3f4", (count, err) => {
+                        assert.ifError(err);
+                        assert.equal(count, 4);
+
+                        file.findDelete("a1", (count, err) => {
+                          assert.ifError(err);
+                          assert.equal(count, 3);
+
+                          file.findDelete("c1", (count, err) => {
+                            assert.ifError(err);
+                            assert.equal(count, 2);
+
+                            file.findDelete("a2", (count, err) => {
+                              assert.ifError(err);
+                              assert.equal(count, 1);
+                              expect(file.close()).to.not.throw;
+                              done();
+                            });
+                          });
+                        });
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+
+  it("reads all records until the end", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    readUntilEnd(file, done);
   });
 
   it("deallocate a dataset", function(done) {

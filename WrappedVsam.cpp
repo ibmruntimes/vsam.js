@@ -308,8 +308,6 @@ Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
                    InstanceMethod("findfirst", &WrappedVsam::FindFirst),
                    InstanceMethod("findlast", &WrappedVsam::FindLast),
                    InstanceMethod("update", &WrappedVsam::Update),
-                   InstanceMethod("findUpdate", &WrappedVsam::FindUpdate),
-                   InstanceMethod("findDelete", &WrappedVsam::FindDelete),
                    InstanceMethod("write", &WrappedVsam::Write),
                    InstanceMethod("delete", &WrappedVsam::Delete),
                    InstanceMethod("close", &WrappedVsam::Close),
@@ -540,7 +538,7 @@ void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
   if ((info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) ||
       (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
        info[2].IsFunction())) {
-    FindDelete_(info, false);
+    FindDelete_(info);
     return;
   }
 
@@ -629,7 +627,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
        info[2].IsFunction()) ||
       (info.Length() == 4 && info[0].IsObject() && info[1].IsNumber() &&
        info[2].IsObject() && info[3].IsFunction())) {
-    FindUpdate_(info, false);
+    FindUpdate_(info);
     return;
   }
 
@@ -841,21 +839,12 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
   uv_queue_work(uv_default_loop(), request, DeallocExecute, DeallocComplete);
 }
 
-void WrappedVsam::FindUpdate(const Napi::CallbackInfo &info) {
-  FindUpdate_(info, true);
-}
-
-void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
-                              bool isCountInCB) {
-  /*
-   * This is also used by Update if the arguments indicate a find-update,
-   * however the user's update() API doesn't require a count arg in its
-   * callback (hence isCountInCB=false), while findUpdate() does.
-   */
+void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
+  // This is also used by Update if the arguments indicate a find-update.
   Napi::HandleScope scope(info.Env());
-  int errArg = isCountInCB ? 1 : 0;
+  const int errArg = 1;
   int recArg, cbArg;
-  const char *pApiName = isCountInCB ? "findUpdate" : "update";
+  const char *pApiName = "update";
   if (info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
       info[2].IsFunction()) {
     recArg = 1;
@@ -921,24 +910,15 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
     }
   }
   Find(info, __KEY_EQ, "findUpdate", cbArg, FindUpdateExecute,
-       isCountInCB ? FindUpdateComplete : DefaultComplete, recbuf, pupd);
+       FindUpdateComplete, recbuf, pupd);
 }
 
-void WrappedVsam::FindDelete(const Napi::CallbackInfo &info) {
-  FindDelete_(info, true);
-}
-
-void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,
-                              bool isCountInCB) {
-  /*
-   * This is also used by Delete if the arguments indicate a find-delete,
-   * however the user's delete() API doesn't require a count arg in its
-   * callback (hence isCountInCB=false), while findDelete() does.
-   */
+void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info) {
+  // This is also used by Delete if the arguments indicate a find-delete.
   Napi::HandleScope scope(info.Env());
-  int errArg = isCountInCB ? 1 : 0;
+  const int errArg = 1;
   int recArg, cbArg;
-  const char *pApiName = isCountInCB ? "findDelete" : "delete";
+  const char *pApiName = "delete";
   if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) {
     cbArg = 1;
   } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
@@ -954,5 +934,5 @@ void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,
   }
 
   Find(info, __KEY_EQ, "findDelete", cbArg, FindDeleteExecute,
-       isCountInCB ? FindDeleteComplete : DefaultComplete);
+       FindDeleteComplete);
 }

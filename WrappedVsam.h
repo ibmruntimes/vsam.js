@@ -37,10 +37,8 @@ private:
   void FindFirst(const Napi::CallbackInfo &info);
   void FindLast(const Napi::CallbackInfo &info);
   void Update(const Napi::CallbackInfo &info);
-  void FindUpdate(const Napi::CallbackInfo &info);
-  void FindUpdate_(const Napi::CallbackInfo &info, bool isCountInCB = true);
-  void FindDelete(const Napi::CallbackInfo &info);
-  void FindDelete_(const Napi::CallbackInfo &info, bool isCountInCB = true);
+  void FindUpdate_(const Napi::CallbackInfo &info);
+  void FindDelete_(const Napi::CallbackInfo &info);
   void Write(const Napi::CallbackInfo &info);
   void Delete(const Napi::CallbackInfo &info);
   void Dealloc(const Napi::CallbackInfo &info);

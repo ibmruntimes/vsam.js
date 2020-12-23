@@ -593,7 +593,6 @@ describe("Key Sequenced Dataset #2", function() {
   it("find and delete in one call", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
-    // delete() doesn't require a record arg in the callback; for that use findDelete() as below
     file.delete("e5f6789afabc", (count, err) => {
       assert.ifError(err);
       assert.equal(count, 1);

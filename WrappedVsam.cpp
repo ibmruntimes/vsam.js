@@ -12,7 +12,7 @@
 Napi::FunctionReference WrappedVsam::constructor_;
 
 static void throwError(const Napi::CallbackInfo &info, int errArgNum,
-                       bool isTypeErr, const char *fmt, ...) {
+                       FirstArgType firstArgType, bool isTypeErr, const char *fmt, ...) {
   char msg[1024];
   va_list args;
   va_start(args, fmt);
@@ -27,10 +27,17 @@ static void throwError(const Napi::CallbackInfo &info, int errArgNum,
       if (!info[i].IsFunction())
         continue;
       Napi::Function cb = info[i].As<Napi::Function>();
-      if (errArgNum == 0)
+      if (errArgNum == 0) {
+        assert(firstArgType == ARG0_TYPE_ERR);
         cb.Call(env.Global(), {Napi::String::New(env, msg)});
-      else if (errArgNum == 1)
-        cb.Call(env.Global(), {env.Null(), Napi::String::New(env, msg)});
+      } else if (errArgNum == 1) {
+        if (firstArgType == ARG0_TYPE_NULL)
+          cb.Call(env.Global(), {env.Null(), Napi::String::New(env, msg)});
+        else if (firstArgType == ARG0_TYPE_0)
+          cb.Call(env.Global(), {Napi::Number::New(env, 0), Napi::String::New(env, msg)});
+        else
+          assert(0);
+      }
       else
         assert(0); // currently errArgNum is only 0 or 1
       return;
@@ -79,6 +86,7 @@ void WrappedVsam::FindUpdateComplete(uv_work_t *req, int status) {
     pdata->cb_.Call(
         pdata->env_.Global(),
         {Napi::Number::New(pdata->env_, pdata->count_), pdata->env_.Null()});
+ 
   delete pdata;
 }
 
@@ -232,7 +240,7 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
   if (info.Length() != 6) {
     Napi::HandleScope scope(info.Env());
     throwError(
-        info, -1, true, //-1 throws an exception, not callback
+        info, -1, ARG0_TYPE_NONE, true, //-1 throws an exception, not callback
         "Internal Error: wrong number of arguments to WrappedVsam constructor: "
         "got %d, expected 6.",
         info.Length());
@@ -344,7 +352,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 
     const Napi::Object &item = schema.Get(properties.Get(i)).As<Napi::Object>();
     if (item.IsEmpty()) {
-      throwError(info, -1, false, "%s error in JSON: item %d is empty.",
+      throwError(info, -1, ARG0_TYPE_NONE, false, "%s error in JSON: item %d is empty.",
                  pApiName, i + 1);
       return env.Null().ToObject();
     }
@@ -354,7 +362,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
       const Napi::Value &vminLength = item.Get("minLength");
       if (!vminLength.IsEmpty() && !vminLength.IsNumber()) {
         throwError(
-            info, -1, true,
+            info, -1, ARG0_TYPE_NONE, true,
             "%s error in JSON (item %d): minLength value must be numeric.",
             pApiName, i + 1);
         return env.Null().ToObject();
@@ -362,7 +370,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         minLength = vminLength.ToNumber().Int32Value();
         if (minLength < 0) {
           throwError(
-              info, -1, true,
+              info, -1, ARG0_TYPE_NONE, true,
               "%s error in JSON (item %d): minLength value cannot be negative.",
               pApiName, i + 1);
           return env.Null().ToObject();
@@ -372,21 +380,21 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 
     int maxLength = 0;
     if (!item.Has("maxLength")) {
-      throwError(info, -1, true,
+      throwError(info, -1, ARG0_TYPE_NONE, true,
                  "%s error in JSON (item %d): maxLength must be specified.",
                  pApiName, i + 1);
       return env.Null().ToObject();
     }
     const Napi::Value &vmaxLength = item.Get("maxLength");
     if (!vmaxLength.IsNumber()) {
-      throwError(info, -1, true,
+      throwError(info, -1, ARG0_TYPE_NONE, true,
                  "%s error in JSON (item %d): maxLength must be numeric.",
                  pApiName, i + 1);
       return env.Null().ToObject();
     } else {
       maxLength = vmaxLength.ToNumber().Int32Value();
       if (maxLength <= 0) {
-        throwError(info, -1, true,
+        throwError(info, -1, ARG0_TYPE_NONE, true,
                    "%s error in JSON (item %d): maxLength value must be "
                    "greater than 0.",
                    pApiName, i + 1);
@@ -395,7 +403,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
     }
 
     if (minLength > maxLength) {
-      throwError(info, -1, true,
+      throwError(info, -1, ARG0_TYPE_NONE, true,
                  "%s error in JSON (item %d): minLength cannot be greater than "
                  "maxLength.",
                  pApiName, i + 1);
@@ -414,7 +422,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
         layout.push_back(
             LayoutItem(name, minLength, maxLength, LayoutItem::HEXADECIMAL));
       } else {
-        throwError(info, -1, true,
+        throwError(info, -1, ARG0_TYPE_NONE, true,
                    "%s error in JSON (item %d): \"type\" must be either "
                    "\"string\" or \"hexadecimal\"",
                    pApiName, i + 1);
@@ -426,7 +434,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
       }
     } else {
       throwError(
-          info, -1, true,
+          info, -1, ARG0_TYPE_NONE, true,
           "%s error in JSON (item %d): \"type\" must be specified (string "
           "or hexadecimal)",
           pApiName, i + 1);
@@ -441,7 +449,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
     const Napi::Value &vminLength =
         item.Get(Napi::String::New(env, "minLength"));
     if (vminLength.ToNumber().Int32Value() == 0) {
-      throwError(info, -1, true,
+      throwError(info, -1, ARG0_TYPE_NONE, true,
                  "%s error in JSON (item %d): minLength of key '%s' must be "
                  "greater than 0.",
                  pApiName, key_i + 1, layout[key_i].name.c_str());
@@ -460,7 +468,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
   if (!p || !p->pVsamFile_ || p->pVsamFile_->getLastError(errmsg) ||
       !p->pVsamFile_->isDatasetOpen()) {
     const char *perr = errmsg.c_str();
-    throwError(info, -1, false,
+    throwError(info, -1, ARG0_TYPE_NONE, false,
                perr && *perr ? perr
                              : "%s error: failed to construct VsamFile object.",
                pApiName);
@@ -478,7 +486,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 Napi::Object WrappedVsam::AllocSync(const Napi::CallbackInfo &info) {
   if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject()) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, -1, true,
+    throwError(info, -1, ARG0_TYPE_NONE, true,
                "allocSync error: allocSync() expects arguments: "
                "VSAM dataset name, schema JSON object.");
     return info.Env().Null().ToObject();
@@ -491,7 +499,7 @@ Napi::Object WrappedVsam::OpenSync(const Napi::CallbackInfo &info) {
   if ((info.Length() < 2 || !info[0].IsString() || !info[1].IsObject()) ||
       (info.Length() == 3 && !info[2].IsString()) || (info.Length() > 3)) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, -1, true,
+    throwError(info, -1, ARG0_TYPE_NONE, true,
                "openSync error: openSync() expects arguments: VSAM dataset "
                "name, schema JSON object, optional fopen() mode.");
     return info.Env().Null().ToObject();
@@ -503,7 +511,7 @@ Napi::Object WrappedVsam::OpenSync(const Napi::CallbackInfo &info) {
 Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
   if (info.Length() != 1 || !info[0].IsString()) {
-    throwError(info, -1, true,
+    throwError(info, -1, ARG0_TYPE_NONE, true,
                "exist error: exist() expects argument: VSAM dataset name.");
     return Napi::Boolean::New(info.Env(), false);
   }
@@ -525,7 +533,7 @@ void WrappedVsam::Close(const Napi::CallbackInfo &info) {
 
   if (uvdata.rc_) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 0, false, uvdata.errmsg_.c_str());
+    throwError(info, 0, ARG0_TYPE_ERR, false, uvdata.errmsg_.c_str());
     return;
   }
 #ifdef DEBUG
@@ -543,7 +551,7 @@ void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
   }
 
   if (info.Length() != 1 || !info[0].IsFunction()) {
-    throwError(info, 0, true,
+    throwError(info, 0, ARG0_TYPE_ERR, true,
                "delete error: delete() expects arguments: "
                "(err), or: "
                "key-string, (count, err), or: "
@@ -559,7 +567,7 @@ void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
 void WrappedVsam::Write(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
-    throwError(info, 0, true,
+    throwError(info, 0, ARG0_TYPE_ERR, true,
                "write error: write() expects arguments: record, (err).");
     return;
   }
@@ -590,7 +598,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
                                     Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, "write", errmsg)) {
-          throwError(info, 0, true, errmsg.c_str());
+          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
           return;
         }
         DCHECK(str.length() <= i->maxLength);
@@ -599,14 +607,14 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, "write", errmsg)) {
-          throwError(info, 0, true, errmsg.c_str());
+          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
           return;
         }
         DCHECK((fldbuf - recbuf) + i->maxLength <= reclen);
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
     } else {
-      throwError(info, 0, true,
+      throwError(info, 0, ARG0_TYPE_ERR, true,
                  "write error: unexpected JSON data type %d for %s.", i->type,
                  i->name.c_str());
       return;
@@ -632,7 +640,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
   }
 
   if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
-    throwError(info, 0, true,
+    throwError(info, 0, ARG0_TYPE_ERR, true,
                "update error: update() expects arguments: "
                "record, (err), "
                "or: key-string, record, (count, err), "
@@ -652,7 +660,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
     if (field.IsUndefined()) {
-      throwError(info, 0, true,
+      throwError(info, 0, ARG0_TYPE_ERR, true,
                  "update error: update value for %s has not been set.",
                  i->name.c_str());
       return;
@@ -662,7 +670,7 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, "update", errmsg)) {
-          throwError(info, 0, true, errmsg.c_str());
+          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
           return;
         }
         DCHECK(str.length() <= i->maxLength);
@@ -670,14 +678,14 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, "update", errmsg)) {
-          throwError(info, 0, true, errmsg.c_str());
+          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
           return;
         }
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
       fldbuf += i->maxLength;
     } else {
-      throwError(info, 0, true, "update error: unexpected data type %d for %s.",
+      throwError(info, 0, ARG0_TYPE_ERR, true, "update error: unexpected data type %d for %s.",
                  i->type, i->name.c_str());
       return;
     }
@@ -696,7 +704,7 @@ void WrappedVsam::FindEq(const Napi::CallbackInfo &info) {
            info[2].IsFunction())
     Find(info, __KEY_EQ, "find", 2);
   else
-    throwError(info, 1, true,
+    throwError(info, 1, ARG0_TYPE_NULL, true,
                "find error: find() expects arguments: "
                "or key-string, (record, err), "
                "or key-buffer, key-buffer-length, (record, err).");
@@ -711,7 +719,7 @@ void WrappedVsam::FindGe(const Napi::CallbackInfo &info) {
     Find(info, __KEY_GE, "findge", 2);
 
   else
-    throwError(info, 1, true,
+    throwError(info, 1, ARG0_TYPE_NULL, true,
                "findge error: findge() expects arguments: "
                "or key-string, (record, err), "
                "or key-buffer, key-buffer-length, (record, err).");
@@ -721,7 +729,7 @@ void WrappedVsam::FindFirst(const Napi::CallbackInfo &info) {
   if (info.Length() == 1 && info[0].IsFunction())
     Find(info, __KEY_FIRST, "findfirst", 0);
   else
-    throwError(info, 1, true,
+    throwError(info, 1, ARG0_TYPE_NULL, true,
                "findfirst error: findfirst() expects argument: (record, err).");
 }
 
@@ -729,12 +737,12 @@ void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
   if (info.Length() == 1 && info[0].IsFunction())
     Find(info, __KEY_LAST, "findlast", 0);
   else
-    throwError(info, 1, true,
+    throwError(info, 1, ARG0_TYPE_NULL, true,
                "findlast error: findlast() expects argument: (record, err).");
 }
 
-void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
-                       const char *pApiName, int callbackArg,
+void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
+                       int callbackArg, FirstArgType firstArgType,
                        uv_work_cb pExecuteFunc, uv_after_work_cb pCompleteFunc,
                        char *pUpdateRecBuf,
                        std::vector<FieldToUpdate> *pFieldsToUpdate) {
@@ -754,7 +762,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
 #endif
       if (layout[key_i].type == LayoutItem::HEXADECIMAL) {
         if (!VsamFile::isHexStrValid(layout[key_i], key, pApiName, errmsg)) {
-          throwError(info, 1, true, errmsg.c_str());
+          throwError(info, 1, firstArgType, true, errmsg.c_str());
           return;
         }
         keybuf = (char *)malloc(layout[key_i].maxLength);
@@ -762,7 +770,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
                                               key.c_str());
       } else {
         if (!VsamFile::isStrValid(layout[key_i], key, pApiName, errmsg)) {
-          throwError(info, 1, true, errmsg.c_str());
+          throwError(info, 1, firstArgType, true, errmsg.c_str());
           return;
         }
         keybuf = (char *)malloc(layout[key_i].maxLength);
@@ -772,7 +780,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
     } else if (info[0].IsObject()) {
       const char *ubuf = info[0].As<Napi::Buffer<char>>().Data();
       if (!info[1].IsNumber()) {
-        throwError(info, 1, true,
+        throwError(info, 1, firstArgType, true,
                    "%s error: buffer argument must be followed by its length.",
                    pApiName);
         return;
@@ -780,7 +788,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
       keybuf_len = info[1].As<Napi::Number>().Uint32Value();
       if (!VsamFile::isHexBufValid(layout[key_i], ubuf, keybuf_len, pApiName,
                                    errmsg)) {
-        throwError(info, 1, true, errmsg.c_str());
+        throwError(info, 1, firstArgType, true, errmsg.c_str());
         return;
       }
       DCHECK(keybuf_len > 0);
@@ -788,7 +796,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
       DCHECK(keybuf != NULL);
       memcpy(keybuf, ubuf, keybuf_len);
     } else {
-      throwError(info, 1, true,
+      throwError(info, 1, firstArgType, true,
                  "%s error: first argument must be "
                  "either a string or a Buffer object.",
                  pApiName);
@@ -808,7 +816,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
 void WrappedVsam::Read(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 1, true,
+    throwError(info, 1, ARG0_TYPE_NULL, true,
                "read error: read() expects argument: (record, err).");
     return;
   }
@@ -821,13 +829,13 @@ void WrappedVsam::Read(const Napi::CallbackInfo &info) {
 void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 0, true,
+    throwError(info, -1, ARG0_TYPE_NONE, true,
                "dealloc error: dealloc() expects argument: (err).");
     return;
   }
   if (pVsamFile_ && pVsamFile_->isDatasetOpen()) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 0, false,
+    throwError(info, 0, ARG0_TYPE_ERR, false,
                "dalloc error: cannot dealloc an open VSAM dataset, call "
                "close() first.");
     return;
@@ -854,7 +862,7 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
     recArg = 2;
     cbArg = 3;
   } else {
-    throwError(info, errArg, true,
+    throwError(info, errArg, ARG0_TYPE_0, true,
                "%s error: %s() expects arguments: "
                "key-string, record, (count, err), or: "
                "key-buffer, key-buffer-length, record, (count, err).",
@@ -883,7 +891,7 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
-          throwError(info, errArg, true, errmsg.c_str());
+          throwError(info, errArg, ARG0_TYPE_0, true, errmsg.c_str());
           return;
         }
         DCHECK(str.length() <= i->maxLength);
@@ -891,7 +899,7 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
-          throwError(info, errArg, true, errmsg.c_str());
+          throwError(info, errArg, ARG0_TYPE_0, true, errmsg.c_str());
           return;
         }
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
@@ -904,12 +912,12 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
 #endif
       fldbuf += i->maxLength;
     } else {
-      throwError(info, errArg, true, "Error: unexpected data type %d.",
+      throwError(info, errArg, ARG0_TYPE_0, true, "Error: unexpected data type %d.",
                  i->type);
       return;
     }
   }
-  Find(info, __KEY_EQ, pApiName, cbArg, FindUpdateExecute,
+  Find(info, __KEY_EQ, pApiName, cbArg, ARG0_TYPE_0, FindUpdateExecute,
        FindUpdateComplete, recbuf, pupd);
 }
 
@@ -925,7 +933,7 @@ void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info) {
              info[2].IsFunction()) {
     cbArg = 2;
   } else {
-    throwError(info, errArg, true,
+    throwError(info, errArg, ARG0_TYPE_0, true,
                "%s error: %s() expects arguments: "
                "key-string, (count, err), or: "
                "key-buffer, key-buffer-length, (count, err).",
@@ -933,6 +941,6 @@ void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info) {
     return;
   }
 
-  Find(info, __KEY_EQ, pApiName, cbArg, FindDeleteExecute,
+  Find(info, __KEY_EQ, pApiName, cbArg, ARG0_TYPE_0, FindDeleteExecute,
        FindDeleteComplete);
 }

@@ -11,6 +11,10 @@
 #include <napi.h>
 #include <uv.h>
 
+// TODO(gabylb): this and throwError() should probably be refactored
+// if more arguments were to be passed to the callback.
+enum FirstArgType { ARG0_TYPE_NONE, ARG0_TYPE_0, ARG0_TYPE_NULL, ARG0_TYPE_ERR };
+
 class WrappedVsam : public Napi::ObjectWrap<WrappedVsam> {
 public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports);
@@ -64,7 +68,8 @@ private:
   static void DeleteComplete(uv_work_t *req, int status);
 
   void Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
-            int callbackArg, uv_work_cb pExecuteFunc = FindExecute,
+            int callbackArg, FirstArgType firstArgType = ARG0_TYPE_NULL,
+            uv_work_cb pExecuteFunc = FindExecute,
             uv_after_work_cb pCompleteFunc = ReadComplete,
             char *pUpdateRecBuf = NULL,
             std::vector<FieldToUpdate> *pFieldsToUpdate = NULL);

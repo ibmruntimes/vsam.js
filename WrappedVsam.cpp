@@ -909,7 +909,7 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
       return;
     }
   }
-  Find(info, __KEY_EQ, "findUpdate", cbArg, FindUpdateExecute,
+  Find(info, __KEY_EQ, pApiName, cbArg, FindUpdateExecute,
        FindUpdateComplete, recbuf, pupd);
 }
 
@@ -933,6 +933,6 @@ void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info) {
     return;
   }
 
-  Find(info, __KEY_EQ, "findDelete", cbArg, FindDeleteExecute,
+  Find(info, __KEY_EQ, pApiName, cbArg, FindDeleteExecute,
        FindDeleteComplete);
 }

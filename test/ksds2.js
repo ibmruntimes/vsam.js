@@ -797,9 +797,27 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  it("reads all records until the end", function(done) {
+  it("test update error during validation followed by a valid update", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
+    record = { amount: "123" };
+    file.update("f1f2f3f4f5f6f7f8f9", record, (count, err) => {
+      assert.equal(count, 0);
+      assert.equal(err, "update error: number of hex digits 9 for 'key' exceed schema's length 8, found <f1f2f3f4f5f6f7f8f9>.");
+
+      file.update("a900b2f4fabc00e9", record, (count, err) => {
+        assert.equal(count, 1);
+        assert.equal(err, null);
+        expect(file.close()).to.not.throw;
+        done();
+      });
+    });
+  });
+
+  it("reads all records until the end", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')),
+                             'rb,type=record');
     readUntilEnd(file, done);
   });
 

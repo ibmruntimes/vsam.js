@@ -26,6 +26,54 @@ static void print_amrc() {
   printf("Last op = %d\n", currErr.__last_op);
 }
 
+int VsamFile::freadRecord(UvWorkData *pdata, int *pr15, bool expectEOF,
+                           const char *pDisplayPrefix, const char *pErrPrefix) {
+  int nread = fread(pdata->recbuf_, 1, reclen_, stream_);
+  *pr15 = R15;
+  if (feof(stream_)) {
+    if (expectEOF)
+      return 0;
+    std::string msg = std::string(pDisplayPrefix) + " - unexpected EOF";
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), *pr15, msg.c_str());
+    pdata->rc_ = 1;
+    return pdata->rc_;
+  }
+  int ferr = ferror(stream_);
+  clearerr(stream_);
+  if (nread <= reclen_ || ferr) {
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+    std::string msg = pDisplayPrefix;
+#else
+    std::string msg = pErrPrefix;
+#endif
+    if (nread < reclen_ || ferr)
+      msg += std::string("; NOTE:");
+    if (nread < reclen_)
+      msg += std::string(" read ") + std::to_string(nread) + " of " +
+             std::to_string(reclen_) + " bytes";
+    if (ferr)
+      msg += " ferror is ON";
+    if (nread <= reclen_ && !ferr) {
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+      displayRecord(pdata->recbuf_, msg.c_str());
+#endif
+      return 0;
+    }
+    if (nread <= reclen_ && !ferr)
+      return 0;
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), *pr15, msg.c_str());
+  } else if (!ferr) {
+    std::string msg = pDisplayPrefix;
+    msg += std::string("; read ") + std::to_string(nread) + " of " +
+           std::to_string(reclen_) + " bytes but ferror() is OFF";
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), *pr15, msg.c_str());
+  } else
+    assert(0);
+
+  pdata->rc_ = 1;
+  return pdata->rc_;
+}
+
 int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
   DCHECK(pdata->recbuf_ != nullptr);
 #ifdef DEBUG
@@ -48,17 +96,10 @@ int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
 #ifdef DEBUG_CRUD
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
-    int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
-    r15 = R15;
-    if (nread == 1) {
-#if defined(DEBUG) || defined(DEBUG_CRUD)
-      displayRecord(pdata->recbuf_, "fread() in Find");
-#endif
+    if (freadRecord(pdata, &r15, false, "fread() in Find",
+                     "find error: record found but could not be read") == 0)
       return 0;
-    }
-    pdata->rc_ = 1;
-    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
-                   "find error: record found but could not be read");
+    assert(0);
   } else if (r15 == 8) {
     pdata->errmsg_ = "no record found";
     // flocate() returns only 0 or EOF (-1)
@@ -123,19 +164,11 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
 #ifdef DEBUG_CRUD
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
-    nread = fread(pdata->recbuf_, reclen_, 1, stream_);
-    r15 = R15;
+    if (freadRecord(pdata, &r15, true, "fread() in FindUpdate",
+                     "FindUpdate error: fread failed") != 0)
+      break;
     if (feof(stream_))
       break;
-    if (nread != 1) {
-      pdata->rc_ = 1;
-      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
-                     "FindUpdateExecute error: fread failed");
-      break;
-    }
-#if defined(DEBUG) || defined(DEBUG_CRUD)
-    displayRecord(pdata->recbuf_, "fread() in FindUpdate");
-#endif
     if (memcmp(pdata->recbuf_ + keypos_, pdata->keybuf_, pdata->keybuf_len_)) {
 #ifdef DEBUG
       fprintf(stderr, "FindUpdateExecute: record doesn't match, stop\n");
@@ -174,19 +207,11 @@ void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
 #ifdef DEBUG_CRUD
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
-    nread = fread(pdata->recbuf_, reclen_, 1, stream_);
-    r15 = R15;
+    if (freadRecord(pdata, &r15, true, "fread() in FindDelete",
+                     "FindDelete error: fread failed") != 0)
+      break;
     if (feof(stream_))
       break;
-    if (nread != 1) {
-      pdata->rc_ = 1;
-      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
-                     "FindDeleteExecute error: fread failed");
-      break;
-    }
-#if defined(DEBUG) || defined(DEBUG_CRUD)
-    displayRecord(pdata->recbuf_, "fread() in FindDelete");
-#endif
     if (memcmp(pdata->recbuf_ + keypos_, pdata->keybuf_, pdata->keybuf_len_)) {
 #ifdef DEBUG
       fprintf(stderr, "FindDeleteExecute: record doesn't match, stop\n");
@@ -217,13 +242,13 @@ void VsamFile::ReadExecute(UvWorkData *pdata) {
 #ifdef DEBUG_CRUD
   assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
-  int nread = fread(pdata->recbuf_, reclen_, 1, stream_);
-  if (nread == 1) {
-    pdata->rc_ = 0;
-#if defined(DEBUG) || defined(DEBUG_CRUD)
-    displayRecord(pdata->recbuf_, "fread() in Read");
-#endif
-    return;
+  int r15;
+  if (freadRecord(pdata, &r15, true, "fread() in Read",
+                   "Read error: fread failed") == 0) {
+    if (!feof(stream_)) {
+      pdata->rc_ = 0;
+      return;
+    }
   }
   free(pdata->recbuf_);
   pdata->recbuf_ = nullptr;

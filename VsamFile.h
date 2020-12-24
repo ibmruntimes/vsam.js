@@ -177,6 +177,8 @@ private:
   int setKeyRecordLengths(const std::string &errPrefix);
   int FindExecute(UvWorkData *pdata, const char *buf, int buflen);
   void displayRecord(const char *recbuf, const char *pPrefix);
+  int freadRecord(UvWorkData *pdata, int *pr15, bool expectEOF,
+                   const char *pDisplayPrefix, const char *pErrPrefix);
 
 private:
   FILE *stream_;

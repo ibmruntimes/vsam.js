@@ -27,7 +27,7 @@ static void print_amrc() {
 }
 
 int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
-  DCHECK(pdata->recbuf_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
 #ifdef DEBUG
   fprintf(stderr,
           "FindExecute flocate() stream=%p, tid=%d, buflen=%d,  equality_=%d, "
@@ -76,20 +76,20 @@ void VsamFile::FindExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
   char *buf;
 
-  DCHECK(pdata->recbuf_ == NULL);
+  DCHECK(pdata->recbuf_ == nullptr);
   pdata->recbuf_ = (char *)malloc(reclen_);
-  DCHECK(pdata->recbuf_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
   FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
 }
 
 void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
-  DCHECK(pdata->recbuf_ != NULL);
-  DCHECK(pdata->pFieldsToUpdate_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
+  DCHECK(pdata->pFieldsToUpdate_ != nullptr);
   // recbuf_ should contain fields to update, save it as FindExecute()
   // overwrites it:
   char *pupdrecbuf = (char *)malloc(reclen_);
-  DCHECK(pupdrecbuf != NULL);
+  DCHECK(pupdrecbuf != nullptr);
   memcpy(pupdrecbuf, pdata->recbuf_, reclen_);
 
   pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
@@ -99,12 +99,19 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
     for (auto i = pdata->pFieldsToUpdate_->begin();
          i != pdata->pFieldsToUpdate_->end(); ++i) {
 #ifdef DEBUG
-      fprintf(stderr,
-              "FindUpdateExecute rec #%d, updating %s to: ", pdata->count_ + 1,
-              i->name.c_str());
-      for (int o = 0; o < i->len; o++)
-        fprintf(stderr, "%02x ", pupdrecbuf[i->offset + o]);
-      fprintf(stderr, "\n");
+      fprintf(stderr, "FindUpdateExecute rec #%d, updating %s to: |",
+              pdata->count_ + 1, i->name.c_str());
+      if (i->type == LayoutItem::HEXADECIMAL) {
+        for (int o = 0; o < i->len; o++)
+          fprintf(stderr, "%02x", pupdrecbuf[i->offset + o]);
+      } else {
+        assert(i->type == LayoutItem::STRING);
+        for (int o = 0; o < i->len; o++)
+          fprintf(stderr, "%c",
+                  pupdrecbuf[i->offset + o] ? pupdrecbuf[i->offset + o] : '.');
+      }
+      fprintf(stderr, "|\n");
+
 #endif
       memcpy(pdata->recbuf_ + i->offset, pupdrecbuf + i->offset, i->len);
     }
@@ -151,9 +158,9 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
 void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
 
-  DCHECK(pdata->recbuf_ == NULL);
+  DCHECK(pdata->recbuf_ == nullptr);
   pdata->recbuf_ = (char *)malloc(reclen_);
-  DCHECK(pdata->recbuf_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
 
   pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
   int nread, r15;
@@ -200,9 +207,9 @@ void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
 
 void VsamFile::ReadExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
-  DCHECK(pdata->recbuf_ == NULL);
+  DCHECK(pdata->recbuf_ == nullptr);
   pdata->recbuf_ = (char *)malloc(reclen_);
-  DCHECK(pdata->recbuf_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
 #ifdef DEBUG
   fprintf(stderr, "ReadExecute fread() %d bytes from tid=%d\n", reclen_,
           gettid());
@@ -219,7 +226,7 @@ void VsamFile::ReadExecute(UvWorkData *pdata) {
     return;
   }
   free(pdata->recbuf_);
-  pdata->recbuf_ = NULL;
+  pdata->recbuf_ = nullptr;
 }
 
 void VsamFile::DeleteExecute(UvWorkData *pdata) {
@@ -229,7 +236,7 @@ void VsamFile::DeleteExecute(UvWorkData *pdata) {
           gettid());
 #endif
 #ifdef DEBUG_CRUD
-  if (pdata->recbuf_ == NULL) {
+  if (pdata->recbuf_ == nullptr) {
     // coming from delete((err) => {});
     assert(fsetpos(stream_, &freadpos_) == 0);
     ReadExecute(pdata);
@@ -267,7 +274,7 @@ void VsamFile::displayRecord(const char *recbuf, const char *pSuffix) {
 
 void VsamFile::WriteExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
-  DCHECK(pdata->recbuf_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
 #ifdef DEBUG
   fprintf(stderr, "WriteExecute fwrite() to %p, tid=%d, reclen=%d: ", stream_,
           gettid(), reclen_);
@@ -299,7 +306,7 @@ void VsamFile::WriteExecute(UvWorkData *pdata) {
 
 void VsamFile::UpdateExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
-  DCHECK(pdata->recbuf_ != NULL);
+  DCHECK(pdata->recbuf_ != nullptr);
 #ifdef DEBUG
   fprintf(stderr, "UpdateExecute fupdate() to %p, tid=%d: ", stream_, gettid());
   for (int i = 0; i < reclen_; i++)
@@ -372,7 +379,7 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
           "isDatasetExist fopen(%s, rb,type=record) returned %p, tid=%d\n",
           dataset.c_str(), stream, gettid());
 #endif
-  if (stream != NULL) {
+  if (stream != nullptr) {
 #ifdef DEBUG
     fprintf(stderr, "isDatasetExist() fclose(%p)\n", stream);
 #endif
@@ -396,7 +403,7 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
       *perr = errno;
     if (perr2)
       *perr2 = __errno2();
-    if (stream == NULL) {
+    if (stream == nullptr) {
       return false;
     }
 #ifdef DEBUG
@@ -410,8 +417,8 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
 
 void VsamFile::open(UvWorkData *pdata) {
   DCHECK(rc_ != 0);
-  DCHECK(pdata == NULL);
-  DCHECK(stream_ == NULL);
+  DCHECK(pdata == nullptr);
+  DCHECK(stream_ == nullptr);
   std::string dsname = formatDatasetName(path_);
   stream_ = fopen(dsname.c_str(), omode_.c_str());
   int r15 = R15;
@@ -422,7 +429,7 @@ void VsamFile::open(UvWorkData *pdata) {
   int err = errno;
   int err2 = __errno2();
 
-  if (stream_ == NULL) {
+  if (stream_ == nullptr) {
     createErrorMsg(errmsg_, errno, __errno2(), r15,
                    "open error: fopen() failed");
     return;
@@ -435,8 +442,8 @@ void VsamFile::open(UvWorkData *pdata) {
 
 void VsamFile::alloc(UvWorkData *pdata) {
   DCHECK(rc_ != 0);
-  DCHECK(pdata == NULL);
-  DCHECK(stream_ == NULL);
+  DCHECK(pdata == nullptr);
+  DCHECK(stream_ == nullptr);
   int err, err2, r15;
   std::string dsname = formatDatasetName(path_);
   if (isDatasetExist(dsname.c_str(), &err, &err2, &r15)) {
@@ -474,7 +481,7 @@ void VsamFile::alloc(UvWorkData *pdata) {
   fprintf(stderr, "VsamFile: fopen(%s, ab+,type=record) returned %p, tid=%d\n",
           dsname.c_str(), stream_, gettid());
 #endif
-  if (stream_ == NULL) {
+  if (stream_ == nullptr) {
     createErrorMsg(errmsg_, errno, __errno2(), r15,
                    "open error: fopen() failed to open new dataset");
     return;
@@ -488,9 +495,9 @@ void VsamFile::alloc(UvWorkData *pdata) {
 }
 
 int VsamFile::setKeyRecordLengths(const std::string &errPrefix) {
-  DCHECK(stream_ != NULL);
+  DCHECK(stream_ != nullptr);
   fldata_t dinfo;
-  fldata(stream_, NULL, &dinfo);
+  fldata(stream_, nullptr, &dinfo);
   keylen_ = dinfo.__vsamkeylen;
   reclen_ = dinfo.__maxreclen;
   if (keylen_ == layout_[key_i_].maxLength) {
@@ -505,7 +512,7 @@ int VsamFile::setKeyRecordLengths(const std::string &errPrefix) {
           errPrefix.c_str(), errmsg_.c_str(), stream_);
 #endif
   fclose(stream_);
-  stream_ = NULL;
+  stream_ = nullptr;
   return -1;
 }
 
@@ -513,7 +520,7 @@ VsamFile::VsamFile(const std::string &path,
                    const std::vector<LayoutItem> &layout, int key_i, int keypos,
                    const std::string &omode)
     : path_(path), layout_(layout), key_i_(key_i), keypos_(keypos),
-      omode_(omode), stream_(NULL), keylen_(0), rc_(1) {
+      omode_(omode), stream_(nullptr), keylen_(0), rc_(1) {
 #ifdef DEBUG
   fprintf(stderr, "In VsamFile constructor for %s.\n", path_.c_str());
 #endif
@@ -529,18 +536,18 @@ VsamFile::~VsamFile() {
 #ifdef DEBUG
   fprintf(stderr, "~VsamFile: this=%p, stream_=%p.\n", this, stream_);
 #endif
-  if (stream_ != NULL) {
+  if (stream_ != nullptr) {
 #ifdef DEBUG
     fprintf(stderr, "~VsamFile: fclose(%p)\n", stream_);
 #endif
     fclose(stream_);
-    stream_ = NULL;
+    stream_ = nullptr;
   }
 }
 
 void VsamFile::Close(UvWorkData *pdata) {
   // non-async
-  if (stream_ == NULL) {
+  if (stream_ == nullptr) {
     pdata->errmsg_ = "VSAM dataset is not open.";
     return;
   }
@@ -552,7 +559,7 @@ void VsamFile::Close(UvWorkData *pdata) {
                    "close error: fclose() failed");
     return;
   }
-  stream_ = NULL;
+  stream_ = nullptr;
 #ifdef DEBUG
   fprintf(stderr, "VSAM dataset closed successfully.\n");
 #endif
@@ -560,7 +567,7 @@ void VsamFile::Close(UvWorkData *pdata) {
 }
 
 int VsamFile::hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr) {
-  DCHECK(hexstr != NULL && hexbuf != NULL && buflen > 0);
+  DCHECK(hexstr != nullptr && hexbuf != nullptr && buflen > 0);
   memset(hexbuf, 0, buflen);
   if (hexstr[0] == 0)
     return 0;
@@ -593,7 +600,7 @@ int VsamFile::hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr) {
 
 int VsamFile::bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
                              int hexbuflen) {
-  DCHECK(hexstr != NULL && hexbuf != NULL && hexbuflen > 0);
+  DCHECK(hexstr != nullptr && hexbuf != nullptr && hexbuflen > 0);
   int i, j;
   *hexstr = 0;
   for (i = 0, j = 0; i < hexbuflen; i++, j += 2)

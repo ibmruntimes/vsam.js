@@ -13,7 +13,12 @@
 
 // TODO(gabylb): this and throwError() should probably be refactored
 // if more arguments were to be passed to the callback.
-enum FirstArgType { ARG0_TYPE_NONE, ARG0_TYPE_0, ARG0_TYPE_NULL, ARG0_TYPE_ERR };
+enum FirstArgType {
+  ARG0_TYPE_NONE,
+  ARG0_TYPE_0,
+  ARG0_TYPE_NULL,
+  ARG0_TYPE_ERR
+};
 
 class WrappedVsam : public Napi::ObjectWrap<WrappedVsam> {
 public:
@@ -71,8 +76,8 @@ private:
             int callbackArg, FirstArgType firstArgType = ARG0_TYPE_NULL,
             uv_work_cb pExecuteFunc = FindExecute,
             uv_after_work_cb pCompleteFunc = ReadComplete,
-            char *pUpdateRecBuf = NULL,
-            std::vector<FieldToUpdate> *pFieldsToUpdate = NULL);
+            char *pUpdateRecBuf = nullptr,
+            std::vector<FieldToUpdate> *pFieldsToUpdate = nullptr);
 
 private:
   static Napi::FunctionReference constructor_;

@@ -12,7 +12,8 @@
 Napi::FunctionReference WrappedVsam::constructor_;
 
 static void throwError(const Napi::CallbackInfo &info, int errArgNum,
-                       FirstArgType firstArgType, bool isTypeErr, const char *fmt, ...) {
+                       FirstArgType firstArgType, bool isTypeErr,
+                       const char *fmt, ...) {
   char msg[1024];
   va_list args;
   va_start(args, fmt);
@@ -34,11 +35,11 @@ static void throwError(const Napi::CallbackInfo &info, int errArgNum,
         if (firstArgType == ARG0_TYPE_NULL)
           cb.Call(env.Global(), {env.Null(), Napi::String::New(env, msg)});
         else if (firstArgType == ARG0_TYPE_0)
-          cb.Call(env.Global(), {Napi::Number::New(env, 0), Napi::String::New(env, msg)});
+          cb.Call(env.Global(),
+                  {Napi::Number::New(env, 0), Napi::String::New(env, msg)});
         else
           assert(0);
-      }
-      else
+      } else
         assert(0); // currently errArgNum is only 0 or 1
       return;
     }
@@ -58,7 +59,7 @@ void WrappedVsam::DefaultComplete(uv_work_t *req, int status) {
     return;
   }
   Napi::HandleScope scope(pdata->env_);
-  DCHECK(pdata->cb_ != NULL && pdata->env_ != NULL);
+  DCHECK(pdata->cb_ != nullptr && pdata->env_ != nullptr);
   if (pdata->rc_ != 0)
     pdata->cb_.Call(pdata->env_.Global(),
                     {Napi::String::New(pdata->env_, pdata->errmsg_)});
@@ -76,7 +77,7 @@ void WrappedVsam::FindUpdateComplete(uv_work_t *req, int status) {
     return;
   }
   Napi::HandleScope scope(pdata->env_);
-  DCHECK(pdata->cb_ != NULL && pdata->env_ != NULL);
+  DCHECK(pdata->cb_ != nullptr && pdata->env_ != nullptr);
   if (pdata->rc_ != 0)
     // even on error, 1 or more records may have been updated before the error
     pdata->cb_.Call(pdata->env_.Global(),
@@ -86,7 +87,7 @@ void WrappedVsam::FindUpdateComplete(uv_work_t *req, int status) {
     pdata->cb_.Call(
         pdata->env_.Global(),
         {Napi::Number::New(pdata->env_, pdata->count_), pdata->env_.Null()});
- 
+
   delete pdata;
 }
 
@@ -119,7 +120,7 @@ void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
     return;
   }
   Napi::HandleScope scope(pdata->env_);
-  DCHECK(pdata->cb_ != NULL && pdata->env_ != NULL);
+  DCHECK(pdata->cb_ != nullptr && pdata->env_ != nullptr);
   if (pdata->rc_ != 0) {
     pdata->cb_.Call(
         pdata->env_.Global(),
@@ -127,7 +128,7 @@ void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
     delete pdata;
     return;
   }
-  if (pdata->recbuf_ == NULL) {
+  if (pdata->recbuf_ == nullptr) {
     pdata->cb_.Call(pdata->env_.Global(),
                     {pdata->env_.Null(), pdata->env_.Null()});
     delete pdata;
@@ -137,7 +138,7 @@ void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
   Napi::Object record = Napi::Object::New(pdata->env_);
   const char *recbuf = pdata->recbuf_;
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   std::vector<LayoutItem> &layout = obj->getLayout();
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
@@ -159,7 +160,7 @@ void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
 void WrappedVsam::FindExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->FindExecute(pdata);
   else
@@ -169,7 +170,7 @@ void WrappedVsam::FindExecute(uv_work_t *req) {
 void WrappedVsam::FindUpdateExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->FindUpdateExecute(pdata); // let it deal with the error
   else
@@ -180,7 +181,7 @@ void WrappedVsam::FindUpdateExecute(uv_work_t *req) {
 void WrappedVsam::FindDeleteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->FindDeleteExecute(pdata); // let it deal with the error
   else
@@ -191,7 +192,7 @@ void WrappedVsam::FindDeleteExecute(uv_work_t *req) {
 void WrappedVsam::ReadExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->ReadExecute(pdata);
   else
@@ -201,7 +202,7 @@ void WrappedVsam::ReadExecute(uv_work_t *req) {
 void WrappedVsam::DeleteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->DeleteExecute(pdata); // let it deal with the error
   else
@@ -211,7 +212,7 @@ void WrappedVsam::DeleteExecute(uv_work_t *req) {
 void WrappedVsam::WriteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->WriteExecute(pdata); // let it deal with the error
   else
@@ -221,7 +222,7 @@ void WrappedVsam::WriteExecute(uv_work_t *req) {
 void WrappedVsam::UpdateExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != NULL);
+  DCHECK(obj != nullptr);
   if (obj->isReadOnly())
     obj->UpdateExecute(pdata); // let it deal with the error
   else
@@ -230,7 +231,7 @@ void WrappedVsam::UpdateExecute(uv_work_t *req) {
 
 void WrappedVsam::DeallocExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
-  DCHECK(pdata->pVsamFile_ == NULL);
+  DCHECK(pdata->pVsamFile_ == nullptr);
   DCHECK(pdata->path_.length() > 0);
   VsamFile::DeallocExecute(pdata);
 }
@@ -301,7 +302,7 @@ void WrappedVsam::deleteVsamFileObj() {
 #ifdef DEBUG
   fprintf(stderr, "deleteVsamFileObj done...\n");
 #endif
-  pVsamFile_ = NULL;
+  pVsamFile_ = nullptr;
 }
 
 Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
@@ -352,8 +353,8 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
 
     const Napi::Object &item = schema.Get(properties.Get(i)).As<Napi::Object>();
     if (item.IsEmpty()) {
-      throwError(info, -1, ARG0_TYPE_NONE, false, "%s error in JSON: item %d is empty.",
-                 pApiName, i + 1);
+      throwError(info, -1, ARG0_TYPE_NONE, false,
+                 "%s error in JSON: item %d is empty.", pApiName, i + 1);
       return env.Null().ToObject();
     }
 
@@ -574,7 +575,7 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
   const Napi::Object &record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char *)malloc(reclen);
-  DCHECK(recbuf != NULL && reclen > 0);
+  DCHECK(recbuf != nullptr && reclen > 0);
   memset(recbuf, 0, reclen);
   char *fldbuf = recbuf;
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
@@ -644,14 +645,14 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
                "update error: update() expects arguments: "
                "record, (err), "
                "or: key-string, record, (count, err), "
-               "or: key-buffer [,key-buffer-length], record, (count, err).");
+               "or: key-buffer,key-buffer-length, record, (count, err).");
     return;
   }
 
   const Napi::Object &record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char *)malloc(reclen);
-  DCHECK(recbuf != NULL);
+  DCHECK(recbuf != nullptr);
   memset(recbuf, 0, reclen);
   char *fldbuf = recbuf;
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
@@ -685,8 +686,9 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
       }
       fldbuf += i->maxLength;
     } else {
-      throwError(info, 0, ARG0_TYPE_ERR, true, "update error: unexpected data type %d for %s.",
-                 i->type, i->name.c_str());
+      throwError(info, 0, ARG0_TYPE_ERR, true,
+                 "update error: unexpected data type %d for %s.", i->type,
+                 i->name.c_str());
       return;
     }
   }
@@ -741,14 +743,14 @@ void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
                "findlast error: findlast() expects argument: (record, err).");
 }
 
-void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
-                       int callbackArg, FirstArgType firstArgType,
-                       uv_work_cb pExecuteFunc, uv_after_work_cb pCompleteFunc,
-                       char *pUpdateRecBuf,
+void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
+                       const char *pApiName, int callbackArg,
+                       FirstArgType firstArgType, uv_work_cb pExecuteFunc,
+                       uv_after_work_cb pCompleteFunc, char *pUpdateRecBuf,
                        std::vector<FieldToUpdate> *pFieldsToUpdate) {
   Napi::HandleScope scope(info.Env());
   std::string key;
-  char *keybuf = NULL;
+  char *keybuf = nullptr;
   int keybuf_len = 0;
   int key_i = pVsamFile_->getKeyNum();
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
@@ -793,7 +795,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality, const char 
       }
       DCHECK(keybuf_len > 0);
       keybuf = (char *)malloc(keybuf_len);
-      DCHECK(keybuf != NULL);
+      DCHECK(keybuf != nullptr);
       memcpy(keybuf, ubuf, keybuf_len);
     } else {
       throwError(info, 1, firstArgType, true,
@@ -840,7 +842,7 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
                "close() first.");
     return;
   }
-  DCHECK(pVsamFile_ == NULL);
+  DCHECK(pVsamFile_ == nullptr);
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[0].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), path_);
@@ -873,7 +875,7 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
   const Napi::Object &record = info[recArg].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char *)malloc(reclen);
-  DCHECK(recbuf != NULL);
+  DCHECK(recbuf != nullptr);
   memset(recbuf, 0, reclen);
   char *fldbuf = recbuf;
   std::vector<FieldToUpdate> *pupd = new std::vector<FieldToUpdate>;
@@ -905,15 +907,15 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
 #ifdef DEBUG
-      pupd->push_back(
-          FieldToUpdate((int)(fldbuf - recbuf), i->maxLength, i->name));
+      pupd->push_back(FieldToUpdate((int)(fldbuf - recbuf), i->maxLength,
+                                    i->name, i->type));
 #else
       pupd->push_back(FieldToUpdate((int)(fldbuf - recbuf), i->maxLength));
 #endif
       fldbuf += i->maxLength;
     } else {
-      throwError(info, errArg, ARG0_TYPE_0, true, "Error: unexpected data type %d.",
-                 i->type);
+      throwError(info, errArg, ARG0_TYPE_0, true,
+                 "Error: unexpected data type %d.", i->type);
       return;
     }
   }

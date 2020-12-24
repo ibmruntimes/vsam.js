@@ -43,8 +43,9 @@ struct FieldToUpdate {
   int len;
 #ifdef DEBUG
   std::string name;
-  FieldToUpdate(int ofs, int len, const std::string &nm)
-      : offset(ofs), len(len), name(nm) {}
+  LayoutItem::DataType type;
+  FieldToUpdate(int ofs, int len, const std::string &nm, LayoutItem::DataType t)
+      : offset(ofs), len(len), name(nm), type(t) {}
 #else
   FieldToUpdate(int ofs, int len) : offset(ofs), len(len) {}
 #endif
@@ -55,9 +56,9 @@ class VsamFile;
 // This is the 'data' member in uv_work_t request:
 struct UvWorkData {
   UvWorkData(VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env,
-             const std::string &path = "", char *recbuf = NULL,
-             char *keybuf = NULL, int keybuf_len = 0, int equality = 0,
-             std::vector<FieldToUpdate> *pFieldsToUpdate = NULL)
+             const std::string &path = "", char *recbuf = nullptr,
+             char *keybuf = nullptr, int keybuf_len = 0, int equality = 0,
+             std::vector<FieldToUpdate> *pFieldsToUpdate = nullptr)
       : pVsamFile_(pVsamFile), cb_(Napi::Persistent(cbfunc)), env_(env),
         path_(path), recbuf_(recbuf), keybuf_(keybuf), keybuf_len_(keybuf_len),
         equality_(equality), pFieldsToUpdate_(pFieldsToUpdate), count_(0),
@@ -66,15 +67,15 @@ struct UvWorkData {
   ~UvWorkData() {
     if (recbuf_) {
       free(recbuf_);
-      recbuf_ = NULL;
+      recbuf_ = nullptr;
     }
     if (keybuf_) {
       free(keybuf_);
-      keybuf_ = NULL;
+      keybuf_ = nullptr;
     }
     if (pFieldsToUpdate_) {
       delete pFieldsToUpdate_;
-      pFieldsToUpdate_ = NULL;
+      pFieldsToUpdate_ = nullptr;
     }
   }
 
@@ -126,7 +127,7 @@ public:
     return rc_;
   }
   std::vector<LayoutItem> &getLayout() { return layout_; }
-  bool isDatasetOpen() const { return (stream_ != NULL); }
+  bool isDatasetOpen() const { return (stream_ != nullptr); }
   bool isReadOnly() const {
     const char *omode = omode_.c_str();
     if (strchr(omode, 'w') || strchr(omode, 'a') || strchr(omode, '+'))

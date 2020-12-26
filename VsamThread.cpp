@@ -43,7 +43,9 @@ void vsamThread(VsamFile *pVsamFile, std::condition_variable *pcv,
     pmsg = pqueue->front();
     pqueue->pop();
 
-#ifdef DEBUG
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+    fflush(stderr);
+    fflush(stdout);
     fprintf(stderr, "vsamThread tid=%d got message %s.\n", gettid(),
             getMessageStr(pmsg->msgid));
 #endif

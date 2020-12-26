@@ -161,72 +161,49 @@ void WrappedVsam::FindExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->FindExecute(pdata);
-  else
-    obj->routeToVsamThread(MSG_FIND, &VsamFile::FindExecute, pdata);
+  obj->routeToVsamThread(MSG_FIND, &VsamFile::FindExecute, pdata);
 }
 
 void WrappedVsam::FindUpdateExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->FindUpdateExecute(pdata); // let it deal with the error
-  else
-    obj->routeToVsamThread(MSG_FIND_UPDATE, &VsamFile::FindUpdateExecute,
-                           pdata);
+  obj->routeToVsamThread(MSG_FIND_UPDATE, &VsamFile::FindUpdateExecute, pdata);
 }
 
 void WrappedVsam::FindDeleteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->FindDeleteExecute(pdata); // let it deal with the error
-  else
-    obj->routeToVsamThread(MSG_FIND_DELETE, &VsamFile::FindDeleteExecute,
-                           pdata);
+  obj->routeToVsamThread(MSG_FIND_DELETE, &VsamFile::FindDeleteExecute, pdata);
 }
 
 void WrappedVsam::ReadExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->ReadExecute(pdata);
-  else
-    obj->routeToVsamThread(MSG_READ, &VsamFile::ReadExecute, pdata);
+  obj->routeToVsamThread(MSG_READ, &VsamFile::ReadExecute, pdata);
 }
 
 void WrappedVsam::DeleteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->DeleteExecute(pdata); // let it deal with the error
-  else
-    obj->routeToVsamThread(MSG_DELETE, &VsamFile::DeleteExecute, pdata);
+  obj->routeToVsamThread(MSG_DELETE, &VsamFile::DeleteExecute, pdata);
 }
 
 void WrappedVsam::WriteExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->WriteExecute(pdata); // let it deal with the error
-  else
-    obj->routeToVsamThread(MSG_WRITE, &VsamFile::WriteExecute, pdata);
+  obj->routeToVsamThread(MSG_WRITE, &VsamFile::WriteExecute, pdata);
 }
 
 void WrappedVsam::UpdateExecute(uv_work_t *req) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   VsamFile *obj = pdata->pVsamFile_;
   DCHECK(obj != nullptr);
-  if (obj->isReadOnly())
-    obj->UpdateExecute(pdata); // let it deal with the error
-  else
-    obj->routeToVsamThread(MSG_UPDATE, &VsamFile::UpdateExecute, pdata);
+  obj->routeToVsamThread(MSG_UPDATE, &VsamFile::UpdateExecute, pdata);
 }
 
 void WrappedVsam::DeallocExecute(uv_work_t *req) {
@@ -264,14 +241,6 @@ WrappedVsam::WrappedVsam(const Napi::CallbackInfo &info)
   fprintf(stderr, "WrappedVsam this=%p created pVsamFile_=%p\n", this,
           pVsamFile_);
 #endif
-  if (pVsamFile_->isReadOnly()) {
-    // no need for a separate thread to handle I/O for this dataset.
-    if (alloc)
-      pVsamFile_->alloc(nullptr);
-    else
-      pVsamFile_->open(nullptr);
-    return;
-  }
   pVsamFile_->routeToVsamThread(MSG_OPEN,
                                 alloc ? &VsamFile::alloc : &VsamFile::open);
 }
@@ -527,10 +496,7 @@ void WrappedVsam::Close(const Napi::CallbackInfo &info) {
 #endif
   static Napi::Function dummy;
   UvWorkData uvdata(nullptr, dummy, nullptr);
-  if (pVsamFile_->isReadOnly())
-    pVsamFile_->Close(&uvdata);
-  else
-    pVsamFile_->routeToVsamThread(MSG_CLOSE, &VsamFile::Close, &uvdata);
+  pVsamFile_->routeToVsamThread(MSG_CLOSE, &VsamFile::Close, &uvdata);
 
   if (uvdata.rc_) {
     Napi::HandleScope scope(info.Env());

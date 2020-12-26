@@ -551,10 +551,8 @@ VsamFile::VsamFile(const std::string &path,
 #endif
   // open() or alloc() should be called directly by WrappedVsam that created
   // this.
-  if (!isReadOnly()) {
-    vsamThread_ = std::thread(vsamThread, this, &vsamThreadCV_,
-                              &vsamThreadMmutex_, &vsamThreadQueue_);
-  }
+  vsamThread_ = std::thread(vsamThread, this, &vsamThreadCV_,
+                            &vsamThreadMmutex_, &vsamThreadQueue_);
 }
 
 VsamFile::~VsamFile() {

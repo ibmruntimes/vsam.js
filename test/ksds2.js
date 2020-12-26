@@ -39,6 +39,7 @@ function readUntilEnd(file, done) {
     }
   );
 }
+
 describe("Key Sequenced Dataset #2", function() {
   before(function() {
     if (vsam.exist(testSet)) {
@@ -398,6 +399,73 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
+  /*
+   * TODO(gabylb): even though all 4 promises resolve/reject in the expected time
+   * (and DONE-find* displayed), it takes too long (~8 seconds) for Promise.all() to return.
+   * This happens only when the block below is run in mocha.
+   */
+  it("run multiple read-only transactions async (see TODO re time)", function() {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')),
+                             "rb,type=record");
+    function p1() {
+      return new Promise((resolve, reject) => {
+        file.find("A900B2F4fabc00e9", (record, err) => {
+          //console.log('DONE-find-1, err=' + err);
+          assert.ifError(err);
+          assert.equal(record.key, "a900b2f4fabc00e9", "6. record has been created");
+          assert.equal(record.name, "M Name TCD", "5. created record has correct name");
+          assert.equal(record.amount, "a1b2c3d4f6000090", "6. created record has correct amount");
+          resolve(0);
+        })
+      })
+    }
+    function p2() {
+      return new Promise((resolve, reject) => {
+        file.findlast((record, err) => {
+          //console.log('DONE-find-2, err=' + err);
+          assert.ifError(err);
+          assert.equal(record.key, "e5f6789afabcd0", "2. record has been created (trailing 0 retained)");
+          assert.equal(record.name, "JIM", "created record has correct name");
+          assert.equal(record.amount, "9876543210", "created record has correct amount");
+          resolve(0);
+        })
+      })
+    }
+    function p3() {
+      return new Promise((resolve, reject) => {
+        file.findfirst((record, err) => {
+          //console.log('DONE-find-3, err=' + err);
+          assert.ifError(err);
+          assert.equal(record.key, "a1b2c3d4", "3. record has been created");
+          assert.equal(record.name, "JOHN", "created record has correct name");
+          assert.equal(record.amount, "1234", "created record has correct amount");
+          resolve(0);
+        })
+      })
+    }
+    function p4() {
+      return new Promise((resolve, reject) => {
+        file.findge("43b2c3d0", (record, err) => {
+          //console.log('DONE-find-4, err=' + err);
+          assert.ifError(err);
+          assert.equal(record.key, "a1b2c3d4", "4. record has been created");
+          assert.equal(record.name, "JOHN", "created record has correct name");
+          assert.equal(record.amount, "1234", "created record has correct amount");
+          resolve(0);
+        })
+      })
+    }
+    return Promise.all([p1(),p2(),p3(),p4()]).then(res => {
+      //console.log('DONE-find-all: OK');
+      expect(file.close()).to.not.throw;
+    }).catch(err => {
+      //console.log("DONE-find-all: ERROR=" + err);
+      assert.ifError(err);
+      expect(file.close()).to.not.throw;
+    })
+  });
+
   it("delete existing record, then find it and verify error, then delete it and verify error", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
@@ -444,7 +512,6 @@ describe("Key Sequenced Dataset #2", function() {
       vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access it
                     JSON.parse(fs.readFileSync('test/test2.json')));
     }).to.throw(/open error: fopen\(\) failed: EDC5061I An error occurred when attempting to define a file to the system. \(R15=0, errno2=0xc00b0402\)./);
-    //}).to.throw(/open error: An error occurred when attempting to define a file to the system/);
     done();
   });
 
@@ -811,6 +878,76 @@ describe("Key Sequenced Dataset #2", function() {
         expect(file.close()).to.not.throw;
         done();
       });
+    });
+  });
+
+  it("reads all records until the end", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')),
+                             'rb,type=record');
+    readUntilEnd(file, done);
+  });
+
+  /*
+   * TODO(gabylb): even though all 3 promises resolve/reject in the expected time
+   * (and DONE-* displayed), it may(x) take too long (~8 seconds) for Promise.all() to return.
+   * This happens only when the block below is run in mocha.
+   * x: it may if the previous test with promises was commented out.
+   */
+  it("run multiple find-update transactions async (see TODO re time)", function() {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+
+    function p1() {
+      return new Promise((resolve, reject) => {
+        record = { name: "UPD c2c3 N", amount: "c5f6f7f800b2b3f4" };
+        file.update("c2c3c4a5a6a7a8", record, (count, err) => {
+          //console.log('DONE-update-1, err=' + err);
+          assert.ifError(err);
+          assert.equal(count, 1);
+          resolve(0);
+        })
+      })
+    }
+    function p2() {
+      return new Promise((resolve, reject) => {
+        record = { name: "diana", amount: "c5c4c3c2c1c" };
+        file.update("a900", record, (count, err) => {
+          //console.log('DONE-update-2, err=' + err);
+          assert.ifError(err);
+          assert.equal(count, 1);
+          resolve(0);
+        })
+      })
+    }
+    function p3() {
+      return new Promise((resolve, reject) => {
+        file.delete("a3", (count, err) => {
+          //console.log('DONE-delete, err=' + err);
+          assert.ifError(err);
+          assert.equal(count, 1);
+          resolve(0);
+        })
+      })
+    }
+    return Promise.all([p1(),p2(),p3()]).then(res => {
+      //console.log('DONE-update-delete-all: OK');
+      expect(file.close()).to.not.throw;
+    }).catch(err => {
+      //console.log('DONE-update-delete-all: ERROR=' + err);
+      assert.ifError(err);
+      expect(file.close()).to.not.throw;
+    })
+  });
+
+  it("write back a records to enable above test run in a loop if needed", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test2.json')));
+    record = { key: "a3", name: "NAME 72347", amount: "f1a2a3f4c5" };
+    file.write(record, (err) => {
+      assert.ifError(err);
+      expect(file.close()).to.not.throw;
+      done();
     });
   });
 

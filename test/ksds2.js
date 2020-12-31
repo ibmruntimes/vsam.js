@@ -40,7 +40,7 @@ function readUntilEnd(file, done) {
   );
 }
 
-describe("Key Sequenced Dataset #2", function() {
+describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promises tests", function() {
   before(function() {
     if (vsam.exist(testSet)) {
       var file = vsam.openSync(testSet,
@@ -399,12 +399,12 @@ describe("Key Sequenced Dataset #2", function() {
     });
   });
 
-  /*
-   * TODO(gabylb): even though all 4 promises resolve/reject in the expected time
-   * (and DONE-find* displayed), it takes too long (~8 seconds) for Promise.all() to return.
-   * This happens only when the block below is run in mocha.
-   */
-  it("run multiple read-only transactions async (see TODO re time)", function() {
+  //
+  // FIXME(gabylb): even though all 4 promises resolve/reject in the expected time
+  // (and DONE-find* displayed), it takes too long (~8 seconds) for Promise.all() to return.
+  // This happens only when the block below is run in mocha.
+  //
+  it("run multiple read-only transactions async (see FIXME re delay)", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')),
                              "rb,type=record");
@@ -888,13 +888,12 @@ describe("Key Sequenced Dataset #2", function() {
     readUntilEnd(file, done);
   });
 
-  /*
-   * TODO(gabylb): even though all 3 promises resolve/reject in the expected time
-   * (and DONE-* displayed), it may(x) take too long (~8 seconds) for Promise.all() to return.
-   * This happens only when the block below is run in mocha.
-   * x: it may if the previous test with promises was commented out.
-   */
-  it("run multiple find-update transactions async (see TODO re time)", function() {
+  //
+  // FIXME(gabylb): even though all 3 promises resolve/reject in the expected time
+  // (and DONE-* displayed), it may take too long (~30 seconds) for Promise.all() to return.
+  // This happens only when the block below is run in mocha.
+  //
+  it("run multiple find-update transactions async (see FIXME re delay)", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test2.json')));
 

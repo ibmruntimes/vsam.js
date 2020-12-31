@@ -27,7 +27,7 @@ static void print_amrc() {
 }
 
 int VsamFile::freadRecord(UvWorkData *pdata, int *pr15, bool expectEOF,
-                           const char *pDisplayPrefix, const char *pErrPrefix) {
+                          const char *pDisplayPrefix, const char *pErrPrefix) {
   int nread = fread(pdata->recbuf_, 1, reclen_, stream_);
   *pr15 = R15;
   if (feof(stream_)) {
@@ -89,15 +89,15 @@ int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
   pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
   int r15 = R15;
 #ifdef DEBUG
-  fprintf(stderr, "FindExecute flocate() returned rc=%d, r15=%d\n", pdata->rc_,
-          r15);
+  fprintf(stderr, "FindExecute flocate() returned rc=%d, r15=%d, tid=%d\n",
+          pdata->rc_, r15, gettid());
 #endif
   if (pdata->rc_ == 0) {
 #ifdef DEBUG_CRUD
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
     if (freadRecord(pdata, &r15, false, "fread() in Find",
-                     "find error: record found but could not be read") == 0)
+                    "find error: record found but could not be read") == 0)
       return 0;
     assert(0);
   } else if (r15 == 8) {
@@ -165,7 +165,7 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
     if (freadRecord(pdata, &r15, true, "fread() in FindUpdate",
-                     "FindUpdate error: fread failed") != 0)
+                    "FindUpdate error: fread failed") != 0)
       break;
     if (feof(stream_))
       break;
@@ -208,7 +208,7 @@ void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
     if (freadRecord(pdata, &r15, true, "fread() in FindDelete",
-                     "FindDelete error: fread failed") != 0)
+                    "FindDelete error: fread failed") != 0)
       break;
     if (feof(stream_))
       break;
@@ -243,12 +243,10 @@ void VsamFile::ReadExecute(UvWorkData *pdata) {
   assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
   int r15;
-  if (freadRecord(pdata, &r15, true, "fread() in Read",
-                   "Read error: fread failed") == 0) {
-    if (!feof(stream_)) {
-      pdata->rc_ = 0;
+  if ((pdata->rc_ = freadRecord(pdata, &r15, true, "fread() in Read",
+                                "Read error: fread failed")) == 0) {
+    if (!feof(stream_))
       return;
-    }
   }
   free(pdata->recbuf_);
   pdata->recbuf_ = nullptr;

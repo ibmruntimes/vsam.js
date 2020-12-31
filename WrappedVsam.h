@@ -13,7 +13,7 @@
 
 // TODO(gabylb): this and throwError() should probably be refactored
 // if more arguments were to be passed to the callback.
-enum FirstArgType {
+enum CbFirstArgType {
   ARG0_TYPE_NONE,
   ARG0_TYPE_0,
   ARG0_TYPE_NULL,
@@ -32,6 +32,7 @@ public:
 
 private:
   static Napi::Object Construct(const Napi::CallbackInfo &info, bool alloc);
+  static Napi::Value createRecordObject(UvWorkData *pdata);
 
   void deleteVsamFileObj();
   bool validateStr(const LayoutItem &item, const std::string &str);
@@ -46,11 +47,31 @@ private:
   void FindFirst(const Napi::CallbackInfo &info);
   void FindLast(const Napi::CallbackInfo &info);
   void Update(const Napi::CallbackInfo &info);
-  void FindUpdate_(const Napi::CallbackInfo &info);
-  void FindDelete_(const Napi::CallbackInfo &info);
   void Write(const Napi::CallbackInfo &info);
   void Delete(const Napi::CallbackInfo &info);
   void Dealloc(const Napi::CallbackInfo &info);
+
+  /* Helpers for Entry point from Javascript */
+  int Write_(const Napi::CallbackInfo &info, const char *pApiName,
+             UvWorkData **ppdata = nullptr);
+  int Update_(const Napi::CallbackInfo &info, const char *pApiname,
+              UvWorkData **ppdata = nullptr);
+  int Delete_(const Napi::CallbackInfo &info, UvWorkData **ppdata = nullptr);
+  int FindUpdate_(const Napi::CallbackInfo &info, const char *pApiName,
+                  UvWorkData **ppdata = nullptr, const int recArg = -1,
+                  const int cbArg = -1);
+  int FindDelete_(const Napi::CallbackInfo &info, const char *pApiName,
+                  UvWorkData **ppdata = nullptr, const int cbArg = -1);
+  Napi::Value FindSync_(const Napi::CallbackInfo &info, UvWorkData *pdata);
+
+  Napi::Value ReadSync(const Napi::CallbackInfo &info);
+  Napi::Value FindEqSync(const Napi::CallbackInfo &info);
+  Napi::Value FindGeSync(const Napi::CallbackInfo &info);
+  Napi::Value FindFirstSync(const Napi::CallbackInfo &info);
+  Napi::Value FindLastSync(const Napi::CallbackInfo &info);
+  Napi::Value UpdateSync(const Napi::CallbackInfo &info);
+  Napi::Value WriteSync(const Napi::CallbackInfo &info);
+  Napi::Value DeleteSync(const Napi::CallbackInfo &info);
 
   /* Work functions */
   static void DeallocExecute(uv_work_t *req);
@@ -72,12 +93,13 @@ private:
   static void WriteComplete(uv_work_t *req, int status);
   static void DeleteComplete(uv_work_t *req, int status);
 
-  void Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
-            int callbackArg, FirstArgType firstArgType = ARG0_TYPE_NULL,
-            uv_work_cb pExecuteFunc = FindExecute,
-            uv_after_work_cb pCompleteFunc = ReadComplete,
-            char *pUpdateRecBuf = nullptr,
-            std::vector<FieldToUpdate> *pFieldsToUpdate = nullptr);
+  int Find(const Napi::CallbackInfo &info, int equality, const char *pApiName,
+           int callbackArg, UvWorkData **ppdata = nullptr,
+           CbFirstArgType firstArgType = ARG0_TYPE_NULL,
+           uv_work_cb pExecuteFunc = FindExecute,
+           uv_after_work_cb pCompleteFunc = ReadComplete,
+           char *pUpdateRecBuf = nullptr,
+           std::vector<FieldToUpdate> *pFieldsToUpdate = nullptr);
 
 private:
   static Napi::FunctionReference constructor_;

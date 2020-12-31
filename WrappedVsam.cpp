@@ -12,7 +12,7 @@
 Napi::FunctionReference WrappedVsam::constructor_;
 
 static void throwError(const Napi::CallbackInfo &info, int errArgNum,
-                       FirstArgType firstArgType, bool isTypeErr,
+                       CbFirstArgType firstArgType, bool isTypeErr,
                        const char *fmt, ...) {
   char msg[1024];
   va_list args;
@@ -23,7 +23,7 @@ static void throwError(const Napi::CallbackInfo &info, int errArgNum,
   fprintf(stderr, "%s\n", msg);
 #endif
   Napi::Env env = info.Env();
-  if (errArgNum >= 0) {
+  if (errArgNum >= 0 && firstArgType != ARG0_TYPE_NONE) {
     for (int i = 0; i < info.Length(); i++) {
       if (!info[i].IsFunction())
         continue;
@@ -111,6 +111,31 @@ void WrappedVsam::DeallocComplete(uv_work_t *req, int status) {
   DefaultComplete(req, status);
 }
 
+Napi::Value WrappedVsam::createRecordObject(UvWorkData *pdata) {
+  if (pdata->recbuf_ == nullptr)
+    return pdata->env_.Null();
+
+  Napi::Object record = Napi::Object::New(pdata->env_);
+  const char *recbuf = pdata->recbuf_;
+  VsamFile *obj = pdata->pVsamFile_;
+  DCHECK(obj != nullptr);
+  std::vector<LayoutItem> &layout = obj->getLayout();
+
+  for (auto i = layout.begin(); i != layout.end(); ++i) {
+    if (i->type == LayoutItem::STRING) {
+      std::string str(recbuf, i->maxLength + 1);
+      str[i->maxLength] = 0;
+      record.Set(i->name, Napi::String::New(pdata->env_, str.c_str()));
+    } else if (i->type == LayoutItem::HEXADECIMAL) {
+      char hexstr[(i->maxLength * 2) + 1];
+      VsamFile::bufferToHexstr(hexstr, sizeof(hexstr), recbuf, i->maxLength);
+      record.Set(i->name, Napi::String::New(pdata->env_, hexstr));
+    }
+    recbuf += i->maxLength;
+  }
+  return record;
+}
+
 void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   delete req;
@@ -135,24 +160,7 @@ void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
     return;
   }
 
-  Napi::Object record = Napi::Object::New(pdata->env_);
-  const char *recbuf = pdata->recbuf_;
-  VsamFile *obj = pdata->pVsamFile_;
-  DCHECK(obj != nullptr);
-  std::vector<LayoutItem> &layout = obj->getLayout();
-
-  for (auto i = layout.begin(); i != layout.end(); ++i) {
-    if (i->type == LayoutItem::STRING) {
-      std::string str(recbuf, i->maxLength + 1);
-      str[i->maxLength] = 0;
-      record.Set(i->name, Napi::String::New(pdata->env_, str.c_str()));
-    } else if (i->type == LayoutItem::HEXADECIMAL) {
-      char hexstr[(i->maxLength * 2) + 1];
-      VsamFile::bufferToHexstr(hexstr, sizeof(hexstr), recbuf, i->maxLength);
-      record.Set(i->name, Napi::String::New(pdata->env_, hexstr));
-    }
-    recbuf += i->maxLength;
-  }
+  Napi::Value record = createRecordObject(pdata);
   pdata->cb_.Call(pdata->env_.Global(), {record, pdata->env_.Null()});
   delete pdata;
 }
@@ -280,14 +288,22 @@ Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
   Napi::Function func =
       DefineClass(env, "WrappedVsam",
                   {InstanceMethod("read", &WrappedVsam::Read),
+                   InstanceMethod("readSync", &WrappedVsam::ReadSync),
                    InstanceMethod("find", &WrappedVsam::FindEq),
-                   InstanceMethod("findeq", &WrappedVsam::FindEq),
+                   InstanceMethod("findSync", &WrappedVsam::FindEqSync),
+                   InstanceMethod("findeqSync", &WrappedVsam::FindEqSync),
                    InstanceMethod("findge", &WrappedVsam::FindGe),
+                   InstanceMethod("findgeSync", &WrappedVsam::FindGeSync),
                    InstanceMethod("findfirst", &WrappedVsam::FindFirst),
+                   InstanceMethod("findfirstSync", &WrappedVsam::FindFirstSync),
                    InstanceMethod("findlast", &WrappedVsam::FindLast),
+                   InstanceMethod("findlastSync", &WrappedVsam::FindLastSync),
                    InstanceMethod("update", &WrappedVsam::Update),
+                   InstanceMethod("updateSync", &WrappedVsam::UpdateSync),
                    InstanceMethod("write", &WrappedVsam::Write),
+                   InstanceMethod("writeSync", &WrappedVsam::WriteSync),
                    InstanceMethod("delete", &WrappedVsam::Delete),
+                   InstanceMethod("deleteSync", &WrappedVsam::DeleteSync),
                    InstanceMethod("close", &WrappedVsam::Close),
                    InstanceMethod("dealloc", &WrappedVsam::Dealloc)});
 
@@ -479,8 +495,8 @@ Napi::Object WrappedVsam::OpenSync(const Napi::CallbackInfo &info) {
 
 // static
 Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo &info) {
-  Napi::HandleScope scope(info.Env());
   if (info.Length() != 1 || !info[0].IsString()) {
+    Napi::HandleScope scope(info.Env());
     throwError(info, -1, ARG0_TYPE_NONE, true,
                "exist error: exist() expects argument: VSAM dataset name.");
     return Napi::Boolean::New(info.Env(), false);
@@ -510,34 +526,95 @@ void WrappedVsam::Close(const Napi::CallbackInfo &info) {
 }
 
 void WrappedVsam::Delete(const Napi::CallbackInfo &info) {
-  if ((info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) ||
-      (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
-       info[2].IsFunction())) {
-    FindDelete_(info);
-    return;
-  }
-
-  if (info.Length() != 1 || !info[0].IsFunction()) {
+  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) {
+    FindDelete_(info, "delete", nullptr, 1); // callback arg #
+  } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+             info[2].IsFunction()) {
+    FindDelete_(info, "delete", nullptr, 2);
+  } else if (info.Length() == 1 && info[0].IsFunction())
+    Delete_(info);
+  else {
+    Napi::HandleScope scope(info.Env());
     throwError(info, 0, ARG0_TYPE_ERR, true,
                "delete error: delete() expects arguments: "
                "(err), or: "
                "key-string, (count, err), or: "
                "key-buffer, key-buffer-length, (count, err).");
-    return;
+  }
+}
+
+int WrappedVsam::Delete_(const Napi::CallbackInfo &info, UvWorkData **ppdata) {
+  Napi::HandleScope scope(info.Env());
+
+  if (ppdata != nullptr) {
+    // called for a sync API
+    Napi::Function dummycb;
+    *ppdata = new UvWorkData(pVsamFile_, dummycb, info.Env());
+    return 0;
   }
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[0].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env());
   uv_queue_work(uv_default_loop(), request, DeleteExecute, DeleteComplete);
+  return 0;
 }
 
-void WrappedVsam::Write(const Napi::CallbackInfo &info) {
+Napi::Value WrappedVsam::DeleteSync(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
-  if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
-    throwError(info, 0, ARG0_TYPE_ERR, true,
-               "write error: write() expects arguments: record, (err).");
-    return;
+  UvWorkData *pdata = nullptr;
+  int rc;
+  bool findDelete = true;
+
+  if ((info.Length() == 1 && info[0].IsString()) ||
+      (info.Length() == 2 && info[0].IsObject() && info[1].IsNumber())) {
+    if (FindDelete_(info, "deleteSync", &pdata))
+      return Napi::Number::New(info.Env(), 0);
+  } else if (info.Length() == 0) {
+    if (Delete_(info, &pdata))
+      return Napi::Number::New(info.Env(), 0);
+    findDelete = false;
+  } else {
+    throwError(info, -1, ARG0_TYPE_NONE, true,
+               "deleteSync error: deleteSync() expects arguments: "
+               "key-string, "
+               "or: key-buffer, key-buffer-length.");
+    return Napi::Number::New(info.Env(), 0);
   }
+
+  assert(pdata != nullptr);
+
+  if (findDelete) {
+    rc = pVsamFile_->routeToVsamThread(MSG_FIND_DELETE,
+                                       &VsamFile::FindDeleteExecute, pdata);
+    if (rc || pdata->rc_) {
+      if (pdata->rc_ == 8) { // no record found
+        delete pdata;
+        return Napi::Number::New(info.Env(), 0);
+      }
+      throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+      delete pdata;
+      return Napi::Number::New(info.Env(), 0);
+    }
+    int count = pdata->count_;
+    delete pdata;
+    return Napi::Number::New(info.Env(), count);
+  } else {
+    rc = pVsamFile_->routeToVsamThread(MSG_DELETE, &VsamFile::DeleteExecute,
+                                       pdata);
+    if (rc || pdata->rc_) {
+      throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+      delete pdata;
+      return Napi::Number::New(info.Env(), 0);
+    }
+    delete pdata;
+    return Napi::Number::New(info.Env(), 1);
+  }
+}
+
+int WrappedVsam::Write_(const Napi::CallbackInfo &info, const char *pApiName,
+                        UvWorkData **ppdata) {
+  Napi::HandleScope scope(info.Env());
+
   const Napi::Object &record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char *)malloc(reclen);
@@ -546,6 +623,8 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
   char *fldbuf = recbuf;
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
   std::string errmsg;
+  CbFirstArgType firstArgType =
+      ppdata == nullptr ? ARG0_TYPE_ERR : ARG0_TYPE_NONE;
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
@@ -554,9 +633,9 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
 #ifdef DEBUG
       if (field.IsUndefined()) {
         fprintf(stderr,
-                "write value of %s was not set, will attempt to set it to "
+                "%s value of %s was not set, will attempt to set it to "
                 "all 0x00\n",
-                i->name.c_str());
+                pApiName, i->name.c_str());
       }
 #endif
       const std::string &str =
@@ -564,56 +643,99 @@ void WrappedVsam::Write(const Napi::CallbackInfo &info) {
                               : static_cast<std::string>(
                                     Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
-        if (!VsamFile::isStrValid(*i, str, "write", errmsg)) {
-          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
-          return;
+        if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
+          throwError(info, 0, firstArgType, true, errmsg.c_str());
+          return -1;
         }
         DCHECK(str.length() <= i->maxLength);
         DCHECK((fldbuf - recbuf) + str.length() <= reclen);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
-        if (!VsamFile::isHexStrValid(*i, str, "write", errmsg)) {
-          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
-          return;
+        if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
+          throwError(info, 0, firstArgType, true, errmsg.c_str());
+          return -1;
         }
         DCHECK((fldbuf - recbuf) + i->maxLength <= reclen);
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
     } else {
-      throwError(info, 0, ARG0_TYPE_ERR, true,
-                 "write error: unexpected JSON data type %d for %s.", i->type,
-                 i->name.c_str());
-      return;
+      throwError(info, 0, firstArgType, true,
+                 "%s error: unexpected JSON data type %d for %s.", pApiName,
+                 i->type, i->name.c_str());
+      return -1;
     }
     fldbuf += i->maxLength;
   }
 
+  if (ppdata != nullptr) {
+    // called for a sync API
+    Napi::Function dummycb;
+    *ppdata = new UvWorkData(pVsamFile_, dummycb, info.Env(), "", recbuf);
+    return 0;
+  }
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[1].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", recbuf);
   uv_queue_work(uv_default_loop(), request, WriteExecute, WriteComplete);
+  return 0;
+}
+
+void WrappedVsam::Write(const Napi::CallbackInfo &info) {
+  if (info.Length() == 2 && info[0].IsObject() && info[1].IsFunction())
+    Write_(info, "write");
+  else {
+    Napi::HandleScope scope(info.Env());
+    throwError(info, 0, ARG0_TYPE_ERR, true,
+               "write error: write() expects arguments: record, (err).");
+  }
+}
+
+Napi::Value WrappedVsam::WriteSync(const Napi::CallbackInfo &info) {
+  Napi::HandleScope scope(info.Env());
+  UvWorkData *pdata = nullptr;
+
+  if (info.Length() == 1 && info[0].IsObject()) {
+    if (Write_(info, "writeSync", &pdata))
+      return Napi::Number::New(info.Env(), 0);
+  } else {
+    throwError(info, -1, ARG0_TYPE_NONE, true,
+               "writeSync error: writeSync() expects arguments: record.");
+    return Napi::Number::New(info.Env(), 0);
+  }
+  int rc =
+      pVsamFile_->routeToVsamThread(MSG_WRITE, &VsamFile::WriteExecute, pdata);
+  if (rc || pdata->rc_) {
+    throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+    delete pdata;
+    return Napi::Number::New(info.Env(), 0);
+  }
+  delete pdata;
+  return Napi::Number::New(info.Env(), 1);
 }
 
 void WrappedVsam::Update(const Napi::CallbackInfo &info) {
-  Napi::HandleScope scope(info.Env());
-
-  if ((info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
-       info[2].IsFunction()) ||
-      (info.Length() == 4 && info[0].IsObject() && info[1].IsNumber() &&
-       info[2].IsObject() && info[3].IsFunction())) {
-    FindUpdate_(info);
-    return;
-  }
-
-  if (info.Length() < 2 || !info[0].IsObject() || !info[1].IsFunction()) {
+  if (info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
+      info[2].IsFunction()) {
+    FindUpdate_(info, "update", nullptr, 1, 2); // record and callback arg #s
+  } else if (info.Length() == 4 && info[0].IsObject() && info[1].IsNumber() &&
+             info[2].IsObject() && info[3].IsFunction()) {
+    FindUpdate_(info, "update", nullptr, 2, 3); // record and callbak>ck arg #s
+  } else if (info.Length() == 2 && info[0].IsObject() && info[1].IsFunction())
+    Update_(info, "update");
+  else {
+    Napi::HandleScope scope(info.Env());
     throwError(info, 0, ARG0_TYPE_ERR, true,
                "update error: update() expects arguments: "
                "record, (err), "
                "or: key-string, record, (count, err), "
-               "or: key-buffer,key-buffer-length, record, (count, err).");
-    return;
+               "or: key-buffer, key-buffer-length, record, (count, err).");
   }
+}
+
+int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
+                         UvWorkData **ppdata) {
+  Napi::HandleScope scope(info.Env());
 
   const Napi::Object &record = info[0].ToObject();
   int reclen = pVsamFile_->getRecordLength();
@@ -623,46 +745,112 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
   char *fldbuf = recbuf;
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
   std::string errmsg;
+  CbFirstArgType firstArgType =
+      ppdata == nullptr ? ARG0_TYPE_ERR : ARG0_TYPE_NONE;
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
     if (field.IsUndefined()) {
-      throwError(info, 0, ARG0_TYPE_ERR, true,
-                 "update error: update value for %s has not been set.",
+      throwError(info, 0, firstArgType, true,
+                 "%s error: update value for %s has not been set.", pApiName,
                  i->name.c_str());
-      return;
+      return -1;
     }
     if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
       const std::string &str =
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
-        if (!VsamFile::isStrValid(*i, str, "update", errmsg)) {
-          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
-          return;
+        if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
+          throwError(info, 0, firstArgType, true, errmsg.c_str());
+          return -1;
         }
         DCHECK(str.length() <= i->maxLength);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
-        if (!VsamFile::isHexStrValid(*i, str, "update", errmsg)) {
-          throwError(info, 0, ARG0_TYPE_ERR, true, errmsg.c_str());
-          return;
+        if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
+          throwError(info, 0, firstArgType, true, errmsg.c_str());
+          return -1;
         }
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
       fldbuf += i->maxLength;
     } else {
-      throwError(info, 0, ARG0_TYPE_ERR, true,
-                 "update error: unexpected data type %d for %s.", i->type,
+      throwError(info, 0, firstArgType, true,
+                 "%s error: unexpected data type %d for %s.", pApiName, i->type,
                  i->name.c_str());
-      return;
+      return -1;
     }
   }
 
+  if (ppdata != nullptr) {
+    // called for a sync API
+    Napi::Function dummycb;
+    *ppdata = new UvWorkData(pVsamFile_, dummycb, info.Env(), "", recbuf);
+    return 0;
+  }
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[1].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", recbuf);
   uv_queue_work(uv_default_loop(), request, UpdateExecute, UpdateComplete);
+  return 0;
+}
+
+Napi::Value WrappedVsam::UpdateSync(const Napi::CallbackInfo &info) {
+  Napi::HandleScope scope(info.Env());
+  UvWorkData *pdata = nullptr;
+  int rc;
+  bool findUpdate = true;
+
+  if (info.Length() == 2 && info[0].IsString() && info[1].IsObject()) {
+    if (FindUpdate_(info, "updateSync", &pdata, 1,
+                    -1)) // record and callback arg #s
+      return Napi::Number::New(info.Env(), 0);
+  } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+             info[2].IsObject()) {
+    if (FindUpdate_(info, "updateSync", &pdata, 2, -1))
+      return Napi::Number::New(info.Env(), 0);
+  } else if (info.Length() == 1 && info[0].IsObject()) {
+    if (Update_(info, "updateSync", &pdata))
+      return Napi::Number::New(info.Env(), 0);
+    findUpdate = false;
+  } else {
+    throwError(info, -1, ARG0_TYPE_NONE, true,
+               "updateSync error: updateSync() expects arguments: "
+               "record, "
+               "or: key-string, record, "
+               "or: key-buffer, key-buffer-length, record.");
+    return Napi::Number::New(info.Env(), 0);
+  }
+
+  assert(pdata != nullptr);
+
+  if (findUpdate) {
+    rc = pVsamFile_->routeToVsamThread(MSG_FIND_UPDATE,
+                                       &VsamFile::FindUpdateExecute, pdata);
+    if (rc || pdata->rc_) {
+      if (pdata->rc_ == 8) { // no record found
+        delete pdata;
+        return Napi::Number::New(info.Env(), 0);
+      }
+      throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+      delete pdata;
+      return Napi::Number::New(info.Env(), 0);
+    }
+    int count = pdata->count_;
+    delete pdata;
+    return Napi::Number::New(info.Env(), count);
+  } else {
+    rc = pVsamFile_->routeToVsamThread(MSG_UPDATE, &VsamFile::UpdateExecute,
+                                       pdata);
+    if (rc || pdata->rc_) {
+      throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+      delete pdata;
+      return Napi::Number::New(info.Env(), 0);
+    }
+    delete pdata;
+    return Napi::Number::New(info.Env(), 1);
+  }
 }
 
 void WrappedVsam::FindEq(const Napi::CallbackInfo &info) {
@@ -671,49 +859,138 @@ void WrappedVsam::FindEq(const Napi::CallbackInfo &info) {
   else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
            info[2].IsFunction())
     Find(info, __KEY_EQ, "find", 2);
-  else
+  else {
+    Napi::HandleScope scope(info.Env());
     throwError(info, 1, ARG0_TYPE_NULL, true,
                "find error: find() expects arguments: "
-               "or key-string, (record, err), "
+               "key-string, (record, err), "
                "or key-buffer, key-buffer-length, (record, err).");
+  }
+}
+
+Napi::Value WrappedVsam::FindSync_(const Napi::CallbackInfo &info,
+                                   UvWorkData *pdata) {
+  assert(pdata != nullptr);
+  int rc =
+      pVsamFile_->routeToVsamThread(MSG_FIND, &VsamFile::FindExecute, pdata);
+  if (rc || pdata->rc_) {
+    if (pdata->rc_ == 8) { // no record found
+      delete pdata;
+      return info.Env().Null();
+    }
+    throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+    delete pdata;
+    return info.Env().Null();
+  }
+  Napi::Value record = createRecordObject(pdata);
+  delete pdata;
+  return record;
+}
+
+Napi::Value WrappedVsam::FindEqSync(const Napi::CallbackInfo &info) {
+  Napi::HandleScope scope(info.Env());
+  UvWorkData *pdata = nullptr;
+  int rc;
+  if ((info.Length() == 2 && info[0].IsObject() && info[1].IsNumber()) ||
+      (info.Length() == 1 && info[0].IsString())) {
+    if (Find(info, __KEY_EQ, "findSync", -1, &pdata, ARG0_TYPE_NONE))
+      return info.Env().Null();
+  } else {
+    throwError(info, -1, ARG0_TYPE_NONE, true,
+               "findSync error: findSync() expects arguments: "
+               "key-string, "
+               "or key-buffer, key-buffer-length.");
+    return info.Env().Null();
+  }
+  return FindSync_(info, pdata);
 }
 
 void WrappedVsam::FindGe(const Napi::CallbackInfo &info) {
-  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction())
+  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) {
     Find(info, __KEY_GE, "findge", 1);
-
-  else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
-           info[2].IsFunction())
+  } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
+             info[2].IsFunction()) {
     Find(info, __KEY_GE, "findge", 2);
-
-  else
+  } else {
+    Napi::HandleScope scope(info.Env());
     throwError(info, 1, ARG0_TYPE_NULL, true,
                "findge error: findge() expects arguments: "
                "or key-string, (record, err), "
                "or key-buffer, key-buffer-length, (record, err).");
+  }
+}
+
+Napi::Value WrappedVsam::FindGeSync(const Napi::CallbackInfo &info) {
+  Napi::HandleScope scope(info.Env());
+  UvWorkData *pdata = nullptr;
+  if ((info.Length() == 2 && info[0].IsObject() && info[1].IsNumber()) ||
+      (info.Length() == 1 && info[0].IsString())) {
+    if (Find(info, __KEY_GE, "findgeSync", -1, &pdata, ARG0_TYPE_NONE))
+      return info.Env().Null();
+  } else {
+    throwError(info, -1, ARG0_TYPE_NONE, true,
+               "findgeSync error: findgeSync() expects arguments: "
+               "key-string, "
+               "or key-buffer, key-buffer-length.");
+    return info.Env().Null();
+  }
+  return FindSync_(info, pdata);
 }
 
 void WrappedVsam::FindFirst(const Napi::CallbackInfo &info) {
   if (info.Length() == 1 && info[0].IsFunction())
     Find(info, __KEY_FIRST, "findfirst", 0);
-  else
+  else {
+    Napi::HandleScope scope(info.Env());
     throwError(info, 1, ARG0_TYPE_NULL, true,
                "findfirst error: findfirst() expects argument: (record, err).");
+  }
+}
+
+Napi::Value WrappedVsam::FindFirstSync(const Napi::CallbackInfo &info) {
+  UvWorkData *pdata = nullptr;
+  if (info.Length() == 0) {
+    if (Find(info, __KEY_FIRST, "findfirstSync", -1, &pdata, ARG0_TYPE_NONE))
+      return info.Env().Null();
+  } else {
+    Napi::HandleScope scope(info.Env());
+    throwError(info, 1, ARG0_TYPE_NULL, true,
+               "findfirstSync error: findfirstSync() expects no argument.");
+    return info.Env().Null();
+  }
+  return FindSync_(info, pdata);
 }
 
 void WrappedVsam::FindLast(const Napi::CallbackInfo &info) {
   if (info.Length() == 1 && info[0].IsFunction())
     Find(info, __KEY_LAST, "findlast", 0);
-  else
+  else {
+    Napi::HandleScope scope(info.Env());
     throwError(info, 1, ARG0_TYPE_NULL, true,
                "findlast error: findlast() expects argument: (record, err).");
+  }
 }
 
-void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
-                       const char *pApiName, int callbackArg,
-                       FirstArgType firstArgType, uv_work_cb pExecuteFunc,
-                       uv_after_work_cb pCompleteFunc, char *pUpdateRecBuf,
-                       std::vector<FieldToUpdate> *pFieldsToUpdate) {
+Napi::Value WrappedVsam::FindLastSync(const Napi::CallbackInfo &info) {
+  UvWorkData *pdata = nullptr;
+  if (info.Length() == 0) {
+    if (Find(info, __KEY_LAST, "findlastSync", -1, &pdata, ARG0_TYPE_NONE))
+      return info.Env().Null();
+  } else {
+    Napi::HandleScope scope(info.Env());
+    throwError(info, 1, ARG0_TYPE_NULL, true,
+               "findfirstSync error: findlastSync() expects no argument.");
+    return info.Env().Null();
+  }
+  return FindSync_(info, pdata);
+}
+
+int WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
+                      const char *pApiName, int callbackArg,
+                      UvWorkData **ppdata, CbFirstArgType firstArgType,
+                      uv_work_cb pExecuteFunc, uv_after_work_cb pCompleteFunc,
+                      char *pUpdateRecBuf,
+                      std::vector<FieldToUpdate> *pFieldsToUpdate) {
   Napi::HandleScope scope(info.Env());
   std::string key;
   char *keybuf = nullptr;
@@ -731,7 +1008,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
       if (layout[key_i].type == LayoutItem::HEXADECIMAL) {
         if (!VsamFile::isHexStrValid(layout[key_i], key, pApiName, errmsg)) {
           throwError(info, 1, firstArgType, true, errmsg.c_str());
-          return;
+          return -1;
         }
         keybuf = (char *)malloc(layout[key_i].maxLength);
         keybuf_len = VsamFile::hexstrToBuffer(keybuf, layout[key_i].maxLength,
@@ -739,7 +1016,7 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
       } else {
         if (!VsamFile::isStrValid(layout[key_i], key, pApiName, errmsg)) {
           throwError(info, 1, firstArgType, true, errmsg.c_str());
-          return;
+          return -1;
         }
         keybuf = (char *)malloc(layout[key_i].maxLength);
         keybuf_len = key.length();
@@ -751,13 +1028,13 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
         throwError(info, 1, firstArgType, true,
                    "%s error: buffer argument must be followed by its length.",
                    pApiName);
-        return;
+        return -1;
       }
       keybuf_len = info[1].As<Napi::Number>().Uint32Value();
       if (!VsamFile::isHexBufValid(layout[key_i], ubuf, keybuf_len, pApiName,
                                    errmsg)) {
         throwError(info, 1, firstArgType, true, errmsg.c_str());
-        return;
+        return -1;
       }
       DCHECK(keybuf_len > 0);
       keybuf = (char *)malloc(keybuf_len);
@@ -768,8 +1045,15 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
                  "%s error: first argument must be "
                  "either a string or a Buffer object.",
                  pApiName);
-      return;
+      return -1;
     }
+  }
+  if (ppdata != nullptr) {
+    // called for a sync API
+    Napi::Function dummycb;
+    *ppdata = new UvWorkData(pVsamFile_, dummycb, info.Env(), "", pUpdateRecBuf,
+                             keybuf, keybuf_len, equality, pFieldsToUpdate);
+    return 0;
   }
 
   uv_work_t *request = new uv_work_t;
@@ -777,8 +1061,8 @@ void WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
 
   request->data = new UvWorkData(pVsamFile_, cb, info.Env(), "", pUpdateRecBuf,
                                  keybuf, keybuf_len, equality, pFieldsToUpdate);
-
   uv_queue_work(uv_default_loop(), request, pExecuteFunc, pCompleteFunc);
+  return 0;
 }
 
 void WrappedVsam::Read(const Napi::CallbackInfo &info) {
@@ -792,6 +1076,27 @@ void WrappedVsam::Read(const Napi::CallbackInfo &info) {
   Napi::Function cb = info[0].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env());
   uv_queue_work(uv_default_loop(), request, ReadExecute, ReadComplete);
+}
+
+Napi::Value WrappedVsam::ReadSync(const Napi::CallbackInfo &info) {
+  Napi::HandleScope scope(info.Env());
+  if (info.Length() != 0) {
+    throwError(info, -1, ARG0_TYPE_NONE, true,
+               "readSync error: readSync() expects no argument.");
+    return info.Env().Null();
+  }
+  Napi::Function dummycb;
+  UvWorkData *pdata = new UvWorkData(pVsamFile_, dummycb, info.Env());
+  int rc =
+      pVsamFile_->routeToVsamThread(MSG_READ, &VsamFile::ReadExecute, pdata);
+  if (rc || pdata->rc_) {
+    throwError(info, -1, ARG0_TYPE_NONE, true, pdata->errmsg_.c_str());
+    delete pdata;
+    return info.Env().Null();
+  }
+  Napi::Value record = createRecordObject(pdata);
+  delete pdata;
+  return record;
 }
 
 void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
@@ -815,28 +1120,16 @@ void WrappedVsam::Dealloc(const Napi::CallbackInfo &info) {
   uv_queue_work(uv_default_loop(), request, DeallocExecute, DeallocComplete);
 }
 
-void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
-  // This is also used by Update if the arguments indicate a find-update.
+int WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
+                             const char *pApiName, UvWorkData **ppdata,
+                             const int recArg, const int cbArg) {
+  // This is used by update, updateSync, find-update and find-update-sync;
+  // update or find-update is determined by the arguments;
+  // sync is if ppdata != nullptr
   Napi::HandleScope scope(info.Env());
   const int errArg = 1;
-  int recArg, cbArg;
-  const char *pApiName = "update";
-  if (info.Length() == 3 && info[0].IsString() && info[1].IsObject() &&
-      info[2].IsFunction()) {
-    recArg = 1;
-    cbArg = 2;
-  } else if (info.Length() == 4 && info[0].IsObject() && info[1].IsNumber() &&
-             info[2].IsObject() && info[3].IsFunction()) {
-    recArg = 2;
-    cbArg = 3;
-  } else {
-    throwError(info, errArg, ARG0_TYPE_0, true,
-               "%s error: %s() expects arguments: "
-               "key-string, record, (count, err), or: "
-               "key-buffer, key-buffer-length, record, (count, err).",
-               pApiName, pApiName);
-    return;
-  }
+  CbFirstArgType firstArgType =
+      ppdata == nullptr ? ARG0_TYPE_0 : ARG0_TYPE_NONE;
 
   const Napi::Object &record = info[recArg].ToObject();
   int reclen = pVsamFile_->getRecordLength();
@@ -859,16 +1152,16 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
-          throwError(info, errArg, ARG0_TYPE_0, true, errmsg.c_str());
-          return;
+          throwError(info, errArg, firstArgType, true, errmsg.c_str());
+          return -1;
         }
         DCHECK(str.length() <= i->maxLength);
         if (str.length() > 0)
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
-          throwError(info, errArg, ARG0_TYPE_0, true, errmsg.c_str());
-          return;
+          throwError(info, errArg, firstArgType, true, errmsg.c_str());
+          return -1;
         }
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
@@ -880,35 +1173,25 @@ void WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info) {
 #endif
       fldbuf += i->maxLength;
     } else {
-      throwError(info, errArg, ARG0_TYPE_0, true,
+      throwError(info, errArg, firstArgType, true,
                  "Error: unexpected data type %d.", i->type);
-      return;
+      return -1;
     }
   }
-  Find(info, __KEY_EQ, pApiName, cbArg, ARG0_TYPE_0, FindUpdateExecute,
-       FindUpdateComplete, recbuf, pupd);
+  return Find(info, __KEY_EQ, pApiName, cbArg, ppdata, firstArgType,
+              FindUpdateExecute, FindUpdateComplete, recbuf, pupd);
 }
 
-void WrappedVsam::FindDelete_(const Napi::CallbackInfo &info) {
-  // This is also used by Delete if the arguments indicate a find-delete.
-  Napi::HandleScope scope(info.Env());
-  const int errArg = 1;
-  int recArg, cbArg;
-  const char *pApiName = "delete";
-  if (info.Length() == 2 && info[0].IsString() && info[1].IsFunction()) {
-    cbArg = 1;
-  } else if (info.Length() == 3 && info[0].IsObject() && info[1].IsNumber() &&
-             info[2].IsFunction()) {
-    cbArg = 2;
-  } else {
-    throwError(info, errArg, ARG0_TYPE_0, true,
-               "%s error: %s() expects arguments: "
-               "key-string, (count, err), or: "
-               "key-buffer, key-buffer-length, (count, err).",
-               pApiName, pApiName);
-    return;
-  }
+int WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,
+                             const char *pApiName, UvWorkData **ppdata,
+                             const int cbArg) {
+  // This is used by delete, deleteSync, find-delete and find-delete-sync;
+  // delete or find-delete is determined by the arguments;
+  // sync is if ppdata != nullptr
+  CbFirstArgType firstArgType =
+      ppdata == nullptr ? ARG0_TYPE_0 : ARG0_TYPE_NONE;
 
-  Find(info, __KEY_EQ, pApiName, cbArg, ARG0_TYPE_0, FindDeleteExecute,
+  Find(info, __KEY_EQ, pApiName, cbArg, ppdata, firstArgType, FindDeleteExecute,
        FindDeleteComplete);
+  return 0;
 }

@@ -381,42 +381,61 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
   });
 
   it("run multiple sync read-only transactions with promise", function() {
-    var file = vsam.openSync(testSet,
+    var filerw = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test3.json')),
+                             "ab+,type=record");
+    var filero = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test3.json')),
                              "rb,type=record");
     function p1() {
       return new Promise((resolve, reject) => {
-        var record = file.findSync("A900B2F4fabc00e9");
+        var record = filero.findSync("A900B2F4fabc00e9");
         expect(record).to.not.be.null;
         assert.equal(record.key, "a900b2f4fabc00e9", "6. record has been created");
         assert.equal(record.name, "M Name TCD", "5. created record has correct name");
         assert.equal(record.amount, "a1b2c3d4f6000090", "6. created record has correct amount");
+
+        // write to the same dataset (with filerw) while it's already open in read-mode (with filero);
+        // p2() below should also read the updated record
+        record.key = "f1234f";
+        record.amount = "880022";
+        filerw.writeSync(record);
         resolve(0);
       })
     }
     function p2() {
       return new Promise((resolve, reject) => {
-        var record = file.findlastSync();
+        var record = filero.findlastSync();
         expect(record).to.not.be.null;
-        assert.equal(record.key, "e5f6789afabcd0", "2. record has been created (trailing 0 retained)");
-        assert.equal(record.name, "JIM", "created record has correct name");
-        assert.equal(record.amount, "9876543210", "created record has correct amount");
+        assert.equal(record.key, "f1234f");
+        assert.equal(record.name, "M Name TCD");
+        assert.equal(record.amount, "880022");
+
+        // p3() below should read the following new record after findfirstSync(), using filero
+        record.key = "a1b2c3d4e5";
+        record.amount = "990033";
+        filerw.writeSync(record);
         resolve(0);
       })
     }
     function p3() {
       return new Promise((resolve, reject) => {
-        var record = file.findfirstSync();
+        var record = filero.findfirstSync();
         expect(record).to.not.be.null;
-        assert.equal(record.key, "a1b2c3d4", "3. record has been created");
-        assert.equal(record.name, "JOHN", "created record has correct name");
-        assert.equal(record.amount, "1234", "created record has correct amount");
+        assert.equal(record.key, "a1b2c3d4");
+        assert.equal(record.name, "JOHN");
+        assert.equal(record.amount, "1234");
+
+        record = filero.readSync();
+        assert.equal(record.key, "a1b2c3d4e5");
+        assert.equal(record.name, "M Name TCD");
+        assert.equal(record.amount, "990033");
         resolve(0);
       })
     }
     function p4() {
       return new Promise((resolve, reject) => {
-        var record = file.findgeSync("43b2c3d0");
+        var record = filero.findgeSync("43b2c3d0");
         expect(record).to.not.be.null;
         assert.equal(record.key, "a1b2c3d4", "4. record has been created");
         assert.equal(record.name, "JOHN", "created record has correct name");
@@ -425,10 +444,12 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
       })
     }
     return Promise.all([p1(),p2(),p3(),p4()]).then(res => {
-      expect(file.close()).to.not.throw;
+      expect(filero.close()).to.not.throw;
+      expect(filerw.close()).to.not.throw;
     }).catch(err => {
       assert.ifError(err);
-      expect(file.close()).to.not.throw;
+      expect(filero.close()).to.not.throw;
+      expect(filerw.close()).to.not.throw;
     })
   });
 
@@ -790,7 +811,7 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
     assert.equal(count, 4);
 
     count = file.deleteSync("a1");
-    assert.equal(count, 3);
+    assert.equal(count, 4);
 
     count = file.deleteSync("c1");
     assert.equal(count, 2);

@@ -507,11 +507,11 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
     done();
   });
 
-  it("return error for invalid dataset access", function(done) {
+  it("return error for accessing a dataset that doesn't exist", function(done) {
     expect(() => {
       vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access it
-                    JSON.parse(fs.readFileSync('test/test2.json')));
-    }).to.throw(/open error: fopen\(\) failed: EDC5061I An error occurred when attempting to define a file to the system. \(R15=0, errno2=0xc00b0402\)./);
+                    JSON.parse(fs.readFileSync('test/test3.json')));
+    }).to.throw(/open error: fopen\(\) failed: EDC5049I The specified file name could not be located. \(R15=2, errno2=0xc00b0641\)./);
     done();
   });
 

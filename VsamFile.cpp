@@ -419,7 +419,7 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
     stream = fopen(dataset.c_str(), "rb+,type=record");
 #ifdef DEBUG
     fprintf(stderr,
-            "isDatasetExist fopen(%s, ab+,type=record) returned %p, tid=%d\n",
+            "isDatasetExist fopen(%s, rb+,type=record) returned %p, tid=%d\n",
             dataset.c_str(), stream, gettid());
 #endif
     if (perr)
@@ -498,10 +498,10 @@ void VsamFile::alloc(UvWorkData *pdata) {
     createErrorMsg(errmsg_, err, err2, R15, "alloc error: dynalloc() failed");
     return;
   }
-  stream_ = fopen(dsname.c_str(), "ab+,type=record");
+  stream_ = fopen(dsname.c_str(), "rb+,type=record");
   r15 = R15;
 #ifdef DEBUG
-  fprintf(stderr, "VsamFile: fopen(%s, ab+,type=record) returned %p, tid=%d\n",
+  fprintf(stderr, "VsamFile: fopen(%s, rb+,type=record) returned %p, tid=%d\n",
           dsname.c_str(), stream_, gettid());
 #endif
   if (stream_ == nullptr) {

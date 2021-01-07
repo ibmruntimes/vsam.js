@@ -325,7 +325,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
   const Napi::Object &schema = info[1].ToObject();
   const std::string &mode =
       info.Length() == 2
-          ? "ab+,type=record"
+          ? "rb+,type=record"
           : (static_cast<std::string>(info[2].As<Napi::String>()));
   const Napi::Array &properties = schema.GetPropertyNames();
   std::vector<LayoutItem> layout;

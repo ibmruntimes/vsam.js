@@ -57,24 +57,6 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
     done();
   });
 
-  it("open and close the existing dataset", function(done) {
-    var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test3.json')));
-    expect(file).to.not.be.null;
-    expect(file.close()).to.not.throw;
-    done();
-  });
-
-  it("return error for opening empty dataset in read-only mode", function(done) {
-    expect(() => {
-      vsam.openSync(testSet,
-                    JSON.parse(fs.readFileSync('test/test3.json')),
-                    'rb,type=record');
-    }).to.throw(/open error: fopen\(\) failed: EDC5041I An error was detected at the system level when opening a file. \(R15=8, errno2=0xc00a0022\)./);
-
-    done();
-  });
-
   it("verify error from zero-length key buffer", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test3.json')));
@@ -383,7 +365,7 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
   it("run multiple sync read-only transactions with promise", function() {
     var filerw = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test3.json')),
-                             "ab+,type=record");
+                             "rb+,type=record");
     var filero = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test3.json')),
                              "rb,type=record");
@@ -484,54 +466,6 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
   it("reads all records until the end", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/test3.json')));
-    readUntilEnd(file, done);
-  });
-
-  it("open a vsam file with incorrect key length", function(done) {
-    expect(() => {
-      vsam.openSync(testSet,
-                    JSON.parse(fs.readFileSync('test/test-error.json')));
-    }).to.throw(/open error: key length 8 doesn't match length 6 in schema./);
-    done();
-  });
-
-  it("return error for invalid dataset access", function(done) {
-    expect(() => {
-      vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access it
-                    JSON.parse(fs.readFileSync('test/test3.json')));
-    }).to.throw(/open error: fopen\(\) failed: EDC5061I An error occurred when attempting to define a file to the system. \(R15=0, errno2=0xc00b0402\)./);
-    done();
-  });
-
-  it("return error for invalid dataset name (invalid character)", function(done) {
-    expect(() => {
-      const testSet = `${uid}.A.B._`;
-      vsam.openSync(testSet,
-                    JSON.parse(fs.readFileSync('test/test3.json')));
-    }).to.throw(/open error: fopen\(\) failed: EDC5047I An invalid file name was specified as a function parameter. \(R15=0, errno2=0xc00b0287\)./);
-    done();
-  });
-
-  it("return error for invalid dataset name (qualifier length < 1)", function(done) {
-    expect(() => {
-      vsam.openSync("A..B",
-                    JSON.parse(fs.readFileSync('test/test3.json')));
-    }).to.throw(/open error: fopen\(\) failed: EDC5047I An invalid file name was specified as a function parameter. \(R15=0, errno2=0xc00b0286\)./);
-    done();
-  });
-
-  it("return error for invalid dataset name (qualifier length > 8)", function(done) {
-    expect(() => {
-      vsam.openSync("A.ABCDEFGHI.B",
-                    JSON.parse(fs.readFileSync('test/test3.json')));
-    }).to.throw(/open error: fopen\(\) failed: EDC5047I An invalid file name was specified as a function parameter. \(R15=0, errno2=0xc00b0286\)./);
-    done();
-  });
-
-  it("open in read-only mode, reads all records until the end", function(done) {
-    var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test3.json')),
-                             "rb,type=record");
     readUntilEnd(file, done);
   });
 

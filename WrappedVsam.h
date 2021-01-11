@@ -100,6 +100,8 @@ private:
            uv_after_work_cb pCompleteFunc = ReadComplete,
            char *pUpdateRecBuf = nullptr,
            std::vector<FieldToUpdate> *pFieldsToUpdate = nullptr);
+  bool errorIfNotOpen(const Napi::CallbackInfo &info, int errArgNum,
+                      CbFirstArgType firstArgType, const char *pApiName);
 
 private:
   static Napi::FunctionReference constructor_;

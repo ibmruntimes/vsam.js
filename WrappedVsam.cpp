@@ -50,6 +50,18 @@ static void throwError(const Napi::CallbackInfo &info, int errArgNum,
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
 }
 
+bool WrappedVsam::errorIfNotOpen(const Napi::CallbackInfo &info, int errArgNum,
+                                 CbFirstArgType firstArgType,
+                                 const char *pApiName) {
+  if (pVsamFile_ == nullptr) {
+    Napi::HandleScope scope(info.Env());
+    throwError(info, errArgNum, firstArgType, false,
+               "%s error: VSAM dataset is not open.", pApiName);
+    return true;
+  }
+  return false;
+}
+
 void WrappedVsam::DefaultComplete(uv_work_t *req, int status) {
   UvWorkData *pdata = (UvWorkData *)(req->data);
   delete req;
@@ -291,6 +303,7 @@ Napi::Object WrappedVsam::Init(Napi::Env env, Napi::Object exports) {
                    InstanceMethod("readSync", &WrappedVsam::ReadSync),
                    InstanceMethod("find", &WrappedVsam::FindEq),
                    InstanceMethod("findSync", &WrappedVsam::FindEqSync),
+                   InstanceMethod("findeq", &WrappedVsam::FindEq),
                    InstanceMethod("findeqSync", &WrappedVsam::FindEqSync),
                    InstanceMethod("findge", &WrappedVsam::FindGe),
                    InstanceMethod("findgeSync", &WrappedVsam::FindGeSync),
@@ -506,17 +519,18 @@ Napi::Boolean WrappedVsam::Exist(const Napi::CallbackInfo &info) {
 }
 
 void WrappedVsam::Close(const Napi::CallbackInfo &info) {
-  int rc;
 #ifdef DEBUG
   fprintf(stderr, "Closing VSAM dataset...\n");
 #endif
+  if (errorIfNotOpen(info, -1, ARG0_TYPE_NONE, "close"))
+    return;
   static Napi::Function dummy;
   UvWorkData uvdata(nullptr, dummy, nullptr);
   pVsamFile_->routeToVsamThread(MSG_CLOSE, &VsamFile::Close, &uvdata);
 
   if (uvdata.rc_) {
     Napi::HandleScope scope(info.Env());
-    throwError(info, 0, ARG0_TYPE_ERR, false, uvdata.errmsg_.c_str());
+    throwError(info, -1, ARG0_TYPE_NONE, false, uvdata.errmsg_.c_str());
     return;
   }
 #ifdef DEBUG
@@ -548,10 +562,14 @@ int WrappedVsam::Delete_(const Napi::CallbackInfo &info, UvWorkData **ppdata) {
 
   if (ppdata != nullptr) {
     // called for a sync API
+    if (errorIfNotOpen(info, -1, ARG0_TYPE_NONE, "deleteSync"))
+      return -1;
     Napi::Function dummycb;
     *ppdata = new UvWorkData(pVsamFile_, dummycb, info.Env());
     return 0;
   }
+  if (errorIfNotOpen(info, 0, ARG0_TYPE_ERR, "delete"))
+    return -1;
   uv_work_t *request = new uv_work_t;
   Napi::Function cb = info[0].As<Napi::Function>();
   request->data = new UvWorkData(pVsamFile_, cb, info.Env());
@@ -613,6 +631,10 @@ Napi::Value WrappedVsam::DeleteSync(const Napi::CallbackInfo &info) {
 
 int WrappedVsam::Write_(const Napi::CallbackInfo &info, const char *pApiName,
                         UvWorkData **ppdata) {
+  CbFirstArgType firstArgType =
+      ppdata == nullptr ? ARG0_TYPE_ERR : ARG0_TYPE_NONE;
+  if (errorIfNotOpen(info, 0, firstArgType, pApiName))
+    return -1;
   Napi::HandleScope scope(info.Env());
 
   const Napi::Object &record = info[0].ToObject();
@@ -623,8 +645,6 @@ int WrappedVsam::Write_(const Napi::CallbackInfo &info, const char *pApiName,
   char *fldbuf = recbuf;
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
   std::string errmsg;
-  CbFirstArgType firstArgType =
-      ppdata == nullptr ? ARG0_TYPE_ERR : ARG0_TYPE_NONE;
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
@@ -735,6 +755,10 @@ void WrappedVsam::Update(const Napi::CallbackInfo &info) {
 
 int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
                          UvWorkData **ppdata) {
+  CbFirstArgType firstArgType =
+      ppdata == nullptr ? ARG0_TYPE_ERR : ARG0_TYPE_NONE;
+  if (errorIfNotOpen(info, 0, firstArgType, pApiName))
+    return -1;
   Napi::HandleScope scope(info.Env());
 
   const Napi::Object &record = info[0].ToObject();
@@ -745,8 +769,6 @@ int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
   char *fldbuf = recbuf;
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
   std::string errmsg;
-  CbFirstArgType firstArgType =
-      ppdata == nullptr ? ARG0_TYPE_ERR : ARG0_TYPE_NONE;
 
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
@@ -991,6 +1013,8 @@ int WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
                       uv_work_cb pExecuteFunc, uv_after_work_cb pCompleteFunc,
                       char *pUpdateRecBuf,
                       std::vector<FieldToUpdate> *pFieldsToUpdate) {
+  if (errorIfNotOpen(info, 1, firstArgType, pApiName))
+    return -1;
   Napi::HandleScope scope(info.Env());
   std::string key;
   char *keybuf = nullptr;
@@ -1066,6 +1090,8 @@ int WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
 }
 
 void WrappedVsam::Read(const Napi::CallbackInfo &info) {
+  if (errorIfNotOpen(info, 1, ARG0_TYPE_NULL, "read"))
+    return;
   if (info.Length() < 1 || !info[0].IsFunction()) {
     Napi::HandleScope scope(info.Env());
     throwError(info, 1, ARG0_TYPE_NULL, true,
@@ -1079,6 +1105,8 @@ void WrappedVsam::Read(const Napi::CallbackInfo &info) {
 }
 
 Napi::Value WrappedVsam::ReadSync(const Napi::CallbackInfo &info) {
+  if (errorIfNotOpen(info, -1, ARG0_TYPE_NONE, "readSync"))
+    return info.Env().Null();
   Napi::HandleScope scope(info.Env());
   if (info.Length() != 0) {
     throwError(info, -1, ARG0_TYPE_NONE, true,
@@ -1126,11 +1154,13 @@ int WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
   // This is used by update, updateSync, find-update and find-update-sync;
   // update or find-update is determined by the arguments;
   // sync is if ppdata != nullptr
-  Napi::HandleScope scope(info.Env());
   const int errArg = 1;
   CbFirstArgType firstArgType =
       ppdata == nullptr ? ARG0_TYPE_0 : ARG0_TYPE_NONE;
+  if (errorIfNotOpen(info, errArg, firstArgType, pApiName))
+    return -1;
 
+  Napi::HandleScope scope(info.Env());
   const Napi::Object &record = info[recArg].ToObject();
   int reclen = pVsamFile_->getRecordLength();
   char *recbuf = (char *)malloc(reclen);
@@ -1191,7 +1221,6 @@ int WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,
   CbFirstArgType firstArgType =
       ppdata == nullptr ? ARG0_TYPE_0 : ARG0_TYPE_NONE;
 
-  Find(info, __KEY_EQ, pApiName, cbArg, ppdata, firstArgType, FindDeleteExecute,
-       FindDeleteComplete);
-  return 0;
+  return Find(info, __KEY_EQ, pApiName, cbArg, ppdata, firstArgType,
+              FindDeleteExecute, FindDeleteComplete);
 }

@@ -44,16 +44,54 @@ describe("Key Sequenced Dataset #3 (sync)", function() {
     done();
   });
 
-  it("create an empty dataset", function(done) {
+  it("create an empty dataset, test write and delete on object returned by allocSync", function(done) {
     var file = vsam.allocSync(testSet,
                              JSON.parse(fs.readFileSync('test/test3.json')));
     expect(file).not.be.null;
+    const keybuf = Buffer.from([0x91, 0xb2, 0xc3, 0xd4]);
+    var record = {
+      key: keybuf.toString('hex'),
+      name: "JOHN",
+      amount: "1234"
+    };
+    var count = file.writeSync(record);
+    assert.equal(count, 1);
+    record = file.findSync(keybuf, keybuf.length);
+    assert.equal(record.key, "91b2c3d4");
+    assert.equal(record.name, "JOHN");
+    assert.equal(record.amount, "1234");
+
+    count = file.deleteSync(record.key);
+    assert.equal(count, 1);
     expect(file.close()).to.not.throw;
     done();
   });
 
   it("ensure test dataset exists", function(done) {
     expect(vsam.exist(testSet)).to.be.true;
+    done();
+  });
+
+  it("verify error from I/O calls on a closed dataset", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test3.json')));
+    expect(file.close()).to.not.throw;
+    var record = { key: "1234", name: "diana", amount: "1234" }
+    const keybuf = Buffer.from([0x01, 0x02, 0x03, 0x04]);
+    expect(() => { file.readSync();}).to.throw(/readSync error: VSAM dataset is not open./);
+    expect(() => { file.findSync("1234");}).to.throw(/findSync error: VSAM dataset is not open./);
+    expect(() => { file.findeqSync("1234");}).to.throw(/findSync error: VSAM dataset is not open./);
+    expect(() => { file.findgeSync("1234");}).to.throw(/findgeSync error: VSAM dataset is not open./);
+    expect(() => { file.findfirstSync();}).to.throw(/findfirstSync error: VSAM dataset is not open./);
+    expect(() => { file.findlastSync();}).to.throw(/findlastSync error: VSAM dataset is not open./);
+    expect(() => { file.updateSync(record);}).to.throw(/updateSync error: VSAM dataset is not open./);
+    expect(() => { file.updateSync("f1f2",record);}).to.throw(/updateSync error: VSAM dataset is not open./);
+    expect(() => { file.updateSync(keybuf,keybuf.length,record);}).to.throw(/updateSync error: VSAM dataset is not open./);
+    expect(() => { file.deleteSync();}).to.throw(/deleteSync error: VSAM dataset is not open./);
+    expect(() => { file.deleteSync("f1f2");}).to.throw(/deleteSync error: VSAM dataset is not open./);
+    expect(() => { file.deleteSync(keybuf,keybuf.length);}).to.throw(/deleteSync error: VSAM dataset is not open./);
+    expect(() => { file.writeSync(record);}).to.throw(/writeSync error: VSAM dataset is not open./);
+    expect(() => { file.close();}).to.throw(/close error: VSAM dataset is not open./);
     done();
   });
 

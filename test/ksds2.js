@@ -78,6 +78,28 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
     done();
   });
 
+  it("verify error from I/O calls on a closed dataset", function(done) {
+    var file = vsam.openSync(testSet,
+                             JSON.parse(fs.readFileSync('test/test3.json')));
+    expect(file.close()).to.not.throw;
+    var record = { key: "1234", name: "diana", amount: "1234" }
+    const keybuf = Buffer.from([0x01, 0x02, 0x03, 0x04]);
+    file.read((record, err) => { assert.equal(err, "read error: VSAM dataset is not open."); });
+    file.find("1234", (record, err) => { assert.equal(err, "find error: VSAM dataset is not open."); });
+    file.findeq("1234", (record, err) => { assert.equal(err, "find error: VSAM dataset is not open."); });
+    file.findge("1234", (record, err) => { assert.equal(err, "findge error: VSAM dataset is not open."); });
+    file.findfirst((record, err) => { assert.equal(err, "findfirst error: VSAM dataset is not open."); });
+    file.findlast((record, err) => { assert.equal(err, "findlast error: VSAM dataset is not open."); });
+    file.update(record, (err) => { assert.equal(err, "update error: VSAM dataset is not open."); });
+    file.update("f1f2", record, (count, err) => { assert.equal(err, "update error: VSAM dataset is not open."); });
+    file.update(keybuf, keybuf.length, record, (count, err) => { assert.equal(err, "update error: VSAM dataset is not open."); });
+    file.delete((err) => { assert.equal(err, "delete error: VSAM dataset is not open."); });
+    file.delete("f1f2", (count, err) => { assert.equal(err, "delete error: VSAM dataset is not open."); });
+    file.delete(keybuf, keybuf.length, (count, err) => { assert.equal(err, "delete error: VSAM dataset is not open."); });
+    file.write(record, (err) => { assert.equal(err, "write error: VSAM dataset is not open."); });
+    done();
+  });
+
   it("return error for opening empty dataset in read-only mode", function(done) {
     expect(() => {
       vsam.openSync(testSet,

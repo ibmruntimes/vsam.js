@@ -1,7 +1,7 @@
 {
   "name": "vsam.js",
-  "version": "2.3.4",
-  "description": "Interact with VSAM files on z/OS",
+  "version": "3.0.0",
+  "description": "Interact with VSAM Data Sets on z/OS",
   "main": "index.js",
   "repository": "ibmruntimes/vsam.js",
   "keywords": [

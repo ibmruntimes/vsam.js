@@ -161,6 +161,12 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
     if (pdata->rc_ != 0)
       break;
     pdata->count_++;
+    if (pdata->keybuf_len_ == keylen_) {
+#ifdef DEBUG
+      fprintf(stderr,"FindUpdateExecute: key length provided is the same as the record's key length, stop search.\n");
+#endif
+      break;
+    }
 #ifdef DEBUG_CRUD
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif
@@ -204,6 +210,12 @@ void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
     if (pdata->rc_ != 0)
       break;
     pdata->count_++;
+    if (pdata->keybuf_len_ == keylen_) {
+#ifdef DEBUG
+      fprintf(stderr,"FindDeleteExecute: key length provided is the same as the record's key length, stop search.\n");
+#endif
+      break;
+    }
 #ifdef DEBUG_CRUD
     assert(fgetpos(stream_, &freadpos_) == 0);
 #endif

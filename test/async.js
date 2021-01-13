@@ -80,7 +80,7 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
 
   it("verify error from I/O calls on a closed dataset", function(done) {
     var file = vsam.openSync(testSet,
-                             JSON.parse(fs.readFileSync('test/test3.json')));
+                             JSON.parse(fs.readFileSync('test/schema.json')));
     expect(file.close()).to.not.throw;
     var record = { key: "1234", name: "diana", amount: "1234" }
     const keybuf = Buffer.from([0x01, 0x02, 0x03, 0x04]);
@@ -532,7 +532,7 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
   it("return error for accessing a dataset that doesn't exist", function(done) {
     expect(() => {
       vsam.openSync("A9y8o2.X", // test will fail if it actually exists and user can access it
-                    JSON.parse(fs.readFileSync('test/test3.json')));
+                    JSON.parse(fs.readFileSync('test/schema.json')));
     }).to.throw(/open error: fopen\(\) failed: EDC5049I The specified file name could not be located. \(R15=2, errno2=0xc00b0641\)./);
     done();
   });

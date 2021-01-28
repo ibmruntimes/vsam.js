@@ -16,6 +16,7 @@ const { execSync } = require('child_process');
 // Set IBM_VSAM_UID environment variable for customer uid
 const uid = process.env.IBM_VSAM_UID || execSync('whoami').slice(0, -1);
 const testSet = `${uid}.TEST3.VSAM.KSDS3`;
+const title = `VSAM Key Sequenced Dataset - sync APIs`;
 
 function readUntilEnd(file, done) {
   while (true) {
@@ -27,7 +28,7 @@ function readUntilEnd(file, done) {
   done();
 }
 
-describe("Key Sequenced Dataset #3 (sync)", function() {
+describe(title, function() {
   before(function() {
     if (vsam.exist(testSet)) {
       var file = vsam.openSync(testSet,

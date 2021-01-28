@@ -15,6 +15,8 @@ const { execSync } = require('child_process');
 // Set IBM_VSAM_UID environment variable for customer uid
 const uid = process.env.IBM_VSAM_UID || execSync('whoami').slice(0, -1);
 const testSet = `${uid}.TEST2.VSAM.KSDS2`;
+const lmt =  process.version.split('.')[0] === 'v12' ? " - see FIXME re delay with the 2 promises tests" : "";
+const title = `VSAM Key Sequenced Dataset - async APIs${lmt}`
 
 function readUntilEnd(file, done) {
   var end = false;
@@ -40,7 +42,7 @@ function readUntilEnd(file, done) {
   );
 }
 
-describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promises tests", function() {
+describe(title, function() {
   before(function() {
     if (vsam.exist(testSet)) {
       var file = vsam.openSync(testSet,
@@ -423,10 +425,12 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
 
   //
   // FIXME(gabylb): even though all 4 promises resolve/reject in the expected time
-  // (and DONE-find* displayed), it takes too long (~8 seconds) for Promise.all() to return.
-  // This happens only when the block below is run in mocha.
-  //
-  it("run multiple read-only transactions async (see FIXME re delay)", function() {
+  // (and DONE-* displayed), it may take too long (~30 seconds) for Promise.all() to return.
+  // This happens only when the block below is run in mocha and Node version v12.
+  // With Node v8, those test time out, but pass when run outside of mocha.
+
+  if (process.version.split('.')[0] !== 'v8') {
+   it("run multiple read-only transactions async", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/schema.json')),
                              "rb,type=record");
@@ -486,7 +490,8 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
       assert.ifError(err);
       expect(file.close()).to.not.throw;
     })
-  });
+   });
+  }
 
   it("delete existing record, then find it and verify error, then delete it and verify error", function(done) {
     var file = vsam.openSync(testSet,
@@ -910,12 +915,14 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
     readUntilEnd(file, done);
   });
 
-  //
   // FIXME(gabylb): even though all 3 promises resolve/reject in the expected time
   // (and DONE-* displayed), it may take too long (~30 seconds) for Promise.all() to return.
-  // This happens only when the block below is run in mocha.
+  // This happens only when the block below is run in mocha and Node version v12.
+  // With Node v8, those test time out, but pass when run outside of mocha.
   //
-  it("run multiple find-update transactions async (see FIXME re delay)", function() {
+
+  if (process.version.split('.')[0] !== 'v8') {
+   it("run multiple find-update transactions async", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/schema.json')));
 
@@ -959,9 +966,9 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
       assert.ifError(err);
       expect(file.close()).to.not.throw;
     })
-  });
+   });
 
-  it("write back a records to enable above test run in a loop if needed", function(done) {
+   it("write back a records to enable above test run in a loop if needed", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/schema.json')));
     record = { key: "a3", name: "NAME 72347", amount: "f1a2a3f4c5" };
@@ -970,7 +977,8 @@ describe("Key Sequenced Dataset #2 (async) - see FIXME re delay with the 2 promi
       expect(file.close()).to.not.throw;
       done();
     });
-  });
+   });
+}
 
   it("reads all records until the end", function(done) {
     var file = vsam.openSync(testSet,

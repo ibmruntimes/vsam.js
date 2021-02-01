@@ -635,7 +635,6 @@ int VsamFile::bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
                              int hexbuflen) {
   DCHECK(hexstr != nullptr && hexbuf != nullptr && hexbuflen > 0);
   int i, j;
-  *hexstr = 0;
   for (i = 0, j = 0; i < hexbuflen; i++, j += 2)
     sprintf(hexstr + j, "%02x", hexbuf[i]);
 

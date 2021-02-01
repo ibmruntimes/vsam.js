@@ -224,7 +224,7 @@ There are two ways to pass the record key to the `find` functions or the overloa
 For example:
 ```js
 // pass recordKey as a string argument:
-file.find("f1f2f3f4, (record, err) => { ... });
+file.find("f1f2f3f4", (record, err) => { ... });
 
 // or pass recordKey as buffer, buffer-length arguments:
 const keybuf = Buffer.from([0xab, 0xb2, 0xc3, 0xd4]);

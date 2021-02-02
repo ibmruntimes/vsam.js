@@ -1,19 +1,22 @@
 /*
  * Licensed Materials - Property of IBM
- * (C) Copyright IBM Corp. 2017. All Rights Reserved.
- * US Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP Schedule Contract with IBM Corp.
-*/
+ * (C) Copyright IBM Corp. 2017, 2021. All Rights Reserved.
+ * US Government Users Restricted Rights - Use, duplication or disclosure
+ * restricted by GSA ADP Schedule Contract with IBM Corp.
+ */
 #include "VsamFile.h"
-#include <node_buffer.h>
-#include <unistd.h>
+#include "VsamThread.h"
 #include <dynit.h>
-#include <sstream>
 #include <numeric>
+#include <sstream>
+#include <unistd.h>
 
-Napi::FunctionReference VsamFile::constructor_;
+// VSAM register 15 for interpreting some of the errors:
+// https://www.ibm.com/support/knowledgecenter/SSB27H_6.2.0/fa2mc2_vsevsam_return_and_error_codes.html
+#define R15 __amrc->__code.__feedback.__rc
 
-static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr);
-static const char* bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen);
+static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
+                                   int r15, const std::string &errPrefix);
 
 static void print_amrc() {
   __amrc_type currErr = *__amrc;
@@ -23,244 +26,398 @@ static void print_amrc() {
   printf("Last op = %d\n", currErr.__last_op);
 }
 
-
-void VsamFile::DeleteCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-  //TODO: what if the write failed (buf != NULL)
-
-  if (status == UV_ECANCELED)
-    return;
-
-  Napi::HandleScope scope(obj->env_);
-  if (obj->lastrc_ != 0) {
-    obj->cb_.Call(obj->env_.Global(), {Napi::String::New(obj->env_, "Failed to delete")});
-    obj->lastrc_ = 0;
+int VsamFile::freadRecord(UvWorkData *pdata, int *pr15, bool expectEOF,
+                          const char *pDisplayPrefix, const char *pErrPrefix) {
+  int nread = fread(pdata->recbuf_, 1, reclen_, stream_);
+  *pr15 = R15;
+  if (feof(stream_)) {
+    if (expectEOF)
+      return 0;
+    std::string msg = std::string(pDisplayPrefix) + " - unexpected EOF";
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), *pr15, msg.c_str());
+    pdata->rc_ = 1;
+    return pdata->rc_;
   }
-  else
-    obj->cb_.Call(obj->env_.Global(), {obj->env_.Null()});
-}
-
-void VsamFile::WriteCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-
-  if (status == UV_ECANCELED)
-    return;
-
-  Napi::HandleScope scope(obj->env_);
-  if (obj->lastrc_ != obj->reclen_) {
-    obj->cb_.Call(obj->env_.Global(), {Napi::String::New(obj->env_,"Failed to write")});
-  }
-  else {
-    obj->cb_.Call(obj->env_.Global(), {obj->env_.Null()});
-  }
-}
-
-
-void VsamFile::UpdateCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-  //TODO: what if the update failed (buf != NULL)
-
-  if (status == UV_ECANCELED)
-    return;
-
-  Napi::HandleScope scope(obj->env_);
-  obj->cb_.Call(obj->env_.Global(), {obj->env_.Null()});
-}
-
-
-void VsamFile::ReadCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-
-  if (status == UV_ECANCELED)
-    return;
-
-  char* buf = (char*)(obj->buf_);
-
-  if (buf != NULL) {
-    Napi::HandleScope scope(obj->env_);
-    Napi::Object record = Napi::Object::New(obj->env_);
-    for(auto i = obj->layout_.begin(); i != obj->layout_.end(); ++i) {
-      if (i->type == LayoutItem::STRING) { 
-        std::string str(buf,i->maxLength+1);
-        str[i->maxLength] = 0;
-        record.Set(&(i->name[0]), Napi::String::New(obj->env_, str.c_str()));
-      }
-      else if (i->type == LayoutItem::HEXADECIMAL) { 
-        char hexstr[(i->maxLength*2)+1];
-        bufferToHexstr(hexstr, buf, i->maxLength);
-        record.Set(&(i->name[0]), Napi::String::New(obj->env_, hexstr));
-      }
-      buf += i->maxLength;
+  int ferr = ferror(stream_);
+  clearerr(stream_);
+  if (nread <= reclen_ || ferr) {
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+    std::string msg = pDisplayPrefix;
+#else
+    std::string msg = pErrPrefix;
+#endif
+    if (nread < reclen_ || ferr)
+      msg += std::string("; NOTE:");
+    if (nread < reclen_)
+      msg += std::string(" read ") + std::to_string(nread) + " of " +
+             std::to_string(reclen_) + " bytes";
+    if (ferr)
+      msg += " ferror is ON";
+    if (nread <= reclen_ && !ferr) {
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+      displayRecord(pdata->recbuf_, msg.c_str());
+#endif
+      return 0;
     }
-    obj->cb_.Call(obj->env_.Global(), {record, obj->env_.Null()});
-  }
-  else {
-    Napi::HandleScope scope(obj->env_);
-    obj->cb_.Call(obj->env_.Global(), { obj->env_.Null(), obj->env_.Null()});
-  }
+    if (nread <= reclen_ && !ferr)
+      return 0;
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), *pr15, msg.c_str());
+  } else if (!ferr) {
+    std::string msg = pDisplayPrefix;
+    msg += std::string("; read ") + std::to_string(nread) + " of " +
+           std::to_string(reclen_) + " bytes but ferror() is OFF";
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), *pr15, msg.c_str());
+  } else
+    assert(0);
+
+  pdata->rc_ = 1;
+  return pdata->rc_;
 }
 
+int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
+  DCHECK(pdata->recbuf_ != nullptr);
+#ifdef DEBUG
+  fprintf(stderr,
+          "FindExecute flocate() stream=%p, tid=%d, buflen=%d,  equality_=%d, "
+          "buf=",
+          stream_, gettid(), buflen, pdata->equality_);
+  for (int i = 0; i < buflen; i++)
+    fprintf(stderr, "%02x ", buf[i]);
+  fprintf(stderr, "\n");
+#endif
 
-void VsamFile::Find(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  int rc;
-  const char* buf;
-  int buflen;
-  if (obj->keybuf_) {
-    if (obj->keybuf_len_==0) {
-      Napi::TypeError::New(obj->env_, "find: Buffer object is empty.").ThrowAsJavaScriptException();
-      return;
-    }
-    buf = obj->keybuf_;
-    buflen = obj->keybuf_len_;
+  pdata->rc_ = flocate(stream_, buf, buflen, pdata->equality_);
+  int r15 = R15;
+#ifdef DEBUG
+  fprintf(stderr, "FindExecute flocate() returned rc=%d, r15=%d, tid=%d\n",
+          pdata->rc_, r15, gettid());
+#endif
+  if (pdata->rc_ == 0) {
+#ifdef DEBUG_CRUD
+    assert(fgetpos(stream_, &freadpos_) == 0);
+#endif
+    if (freadRecord(pdata, &r15, false, "fread() in Find",
+                    "find error: record found but could not be read") == 0)
+      return 0;
+    assert(0);
+  } else if (r15 == 8) {
+    pdata->errmsg_ = "no record found";
+    // flocate() returns only 0 or EOF (-1)
+    assert(pdata->rc_ == EOF);
+    pdata->rc_ = r15;
   } else {
-    LayoutItem& key_layout = obj->layout_[obj->key_i_];
-    if (key_layout.type == LayoutItem::HEXADECIMAL) {
-      char buf[key_layout.maxLength+1];
-      hexstrToBuffer(buf, sizeof(buf), obj->key_.c_str());
-      rc = flocate(obj->stream_, buf, obj->keylen_, obj->equality_);
-      goto chk;
-    } else {
-      buf = obj->key_.c_str();
-      buflen = obj->keylen_;
-    }
+    assert(pdata->rc_ != 0);
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "find error: flocate() failed");
   }
-  rc = flocate(obj->stream_, buf, buflen, obj->equality_);
+  return pdata->rc_;
+}
 
-chk: 
-  if (rc==0) {
-    char buf[obj->reclen_];
-    int ret = fread(buf, obj->reclen_, 1, obj->stream_);
-    //TODO: if read fails
-    if (ret == 1) {
-      if (obj->buf_) {
-        free(obj->buf_);
+void VsamFile::FindExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  char *buf;
+
+  DCHECK(pdata->recbuf_ == nullptr);
+  pdata->recbuf_ = (char *)malloc(reclen_);
+  DCHECK(pdata->recbuf_ != nullptr);
+  FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
+}
+
+void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  DCHECK(pdata->recbuf_ != nullptr);
+  DCHECK(pdata->pFieldsToUpdate_ != nullptr);
+  // recbuf_ should contain fields to update, save it as FindExecute()
+  // overwrites it:
+  char *pupdrecbuf = (char *)malloc(reclen_);
+  DCHECK(pupdrecbuf != nullptr);
+  memcpy(pupdrecbuf, pdata->recbuf_, reclen_);
+
+  pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
+  int nread, r15;
+
+  for (pdata->count_ = 0; pdata->rc_ == 0;) {
+    for (auto i = pdata->pFieldsToUpdate_->begin();
+         i != pdata->pFieldsToUpdate_->end(); ++i) {
+#ifdef DEBUG
+      fprintf(stderr, "FindUpdateExecute rec #%d, updating %s to: |",
+              pdata->count_ + 1, i->name.c_str());
+      if (i->type == LayoutItem::HEXADECIMAL) {
+        for (int o = 0; o < i->len; o++)
+          fprintf(stderr, "%02x", pupdrecbuf[i->offset + o]);
+      } else {
+        assert(i->type == LayoutItem::STRING);
+        for (int o = 0; o < i->len; o++)
+          fprintf(stderr, "%c",
+                  pupdrecbuf[i->offset + o] ? pupdrecbuf[i->offset + o] : '.');
       }
-      obj->buf_ = malloc(obj->reclen_);
-      //TODO: if malloc fails
-      memcpy(obj->buf_, buf, obj->reclen_);
-      return;
+      fprintf(stderr, "|\n");
+
+#endif
+      memcpy(pdata->recbuf_ + i->offset, pupdrecbuf + i->offset, i->len);
+    }
+    pdata->rc_ = 1;
+    UpdateExecute(pdata);
+    if (pdata->rc_ != 0)
+      break;
+    pdata->count_++;
+    if (pdata->keybuf_len_ == keylen_) {
+#ifdef DEBUG
+      fprintf(stderr,"FindUpdateExecute: key length provided is the same as the record's key length, stop search.\n");
+#endif
+      break;
+    }
+#ifdef DEBUG_CRUD
+    assert(fgetpos(stream_, &freadpos_) == 0);
+#endif
+    if (freadRecord(pdata, &r15, true, "fread() in FindUpdate",
+                    "FindUpdate error: fread failed") != 0)
+      break;
+    if (feof(stream_))
+      break;
+    if (memcmp(pdata->recbuf_ + keypos_, pdata->keybuf_, pdata->keybuf_len_)) {
+#ifdef DEBUG
+      fprintf(stderr, "FindUpdateExecute: record doesn't match, stop\n");
+#endif
+      break;
     }
   }
-  if (obj->buf_) {
-    free(obj->buf_);
-    obj->buf_ = NULL;
-  }
-  if (obj->keybuf_) {
-    free(obj->keybuf_);
-    obj->keybuf_ = NULL;
+  free(pupdrecbuf);
+
+  if (pdata->rc_ == 8) {
+    if (pdata->count_ == 0)
+      pdata->errmsg_ = "no record found with the key for update";
+    else {
+      pdata->errmsg_ = "";
+      pdata->rc_ = 0;
+    }
   }
 }
 
-void VsamFile::Read(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  char buf[obj->reclen_];
-  int ret = fread(buf, obj->reclen_, 1, obj->stream_);
-  //TODO: if read fails
-  if (ret == 1) {
-    obj->buf_ = malloc(obj->reclen_);
-    //TODO: if malloc fails
-    memcpy(obj->buf_, buf, obj->reclen_);
+void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+
+  DCHECK(pdata->recbuf_ == nullptr);
+  pdata->recbuf_ = (char *)malloc(reclen_);
+  DCHECK(pdata->recbuf_ != nullptr);
+
+  pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
+  int nread, r15;
+
+  for (pdata->count_ = 0; pdata->rc_ == 0;) {
+    pdata->rc_ = 1;
+    DeleteExecute(pdata);
+    if (pdata->rc_ != 0)
+      break;
+    pdata->count_++;
+    if (pdata->keybuf_len_ == keylen_) {
+#ifdef DEBUG
+      fprintf(stderr,"FindDeleteExecute: key length provided is the same as the record's key length, stop search.\n");
+#endif
+      break;
+    }
+#ifdef DEBUG_CRUD
+    assert(fgetpos(stream_, &freadpos_) == 0);
+#endif
+    if (freadRecord(pdata, &r15, true, "fread() in FindDelete",
+                    "FindDelete error: fread failed") != 0)
+      break;
+    if (feof(stream_))
+      break;
+    if (memcmp(pdata->recbuf_ + keypos_, pdata->keybuf_, pdata->keybuf_len_)) {
+#ifdef DEBUG
+      fprintf(stderr, "FindDeleteExecute: record doesn't match, stop\n");
+#endif
+      break;
+    }
+  }
+
+  if (pdata->rc_ == 8) {
+    if (pdata->count_ == 0)
+      pdata->errmsg_ = "no record found with the key for delete";
+    else {
+      pdata->errmsg_ = "";
+      pdata->rc_ = 0;
+    }
+  }
+}
+
+void VsamFile::ReadExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  DCHECK(pdata->recbuf_ == nullptr);
+  pdata->recbuf_ = (char *)malloc(reclen_);
+  DCHECK(pdata->recbuf_ != nullptr);
+#ifdef DEBUG
+  fprintf(stderr, "ReadExecute fread() %d bytes from tid=%d\n", reclen_,
+          gettid());
+#endif
+#ifdef DEBUG_CRUD
+  assert(fgetpos(stream_, &freadpos_) == 0);
+#endif
+  int r15;
+  if ((pdata->rc_ = freadRecord(pdata, &r15, true, "fread() in Read",
+                                "Read error: fread failed")) == 0) {
+    if (!feof(stream_))
+      return;
+  }
+  free(pdata->recbuf_);
+  pdata->recbuf_ = nullptr;
+}
+
+void VsamFile::DeleteExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+#ifdef DEBUG
+  fprintf(stderr, "DeleteExecute fdelrec() to %p, tid=%d...\n", stream_,
+          gettid());
+#endif
+#ifdef DEBUG_CRUD
+  if (pdata->recbuf_ == nullptr) {
+    // coming from delete((err) => {});
+    assert(fsetpos(stream_, &freadpos_) == 0);
+    ReadExecute(pdata);
+  }
+#endif
+  pdata->rc_ = fdelrec(stream_);
+  int r15 = R15;
+  if (pdata->rc_ != 0) {
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "delete error: fdelrec() failed");
     return;
   }
-  if (obj->buf_) {
-    free(obj->buf_);
-    obj->buf_ = NULL;
-  }
-  if (obj->keybuf_) {
-    free(obj->keybuf_);
-    obj->keybuf_ = NULL;
-  }
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+  displayRecord(pdata->recbuf_, "fdelrec() in Delete");
+#endif
 }
 
-
-void VsamFile::Delete(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  obj->lastrc_ = fdelrec(obj->stream_);
+void VsamFile::displayRecord(const char *recbuf, const char *pSuffix) {
+  int i, pos = 0;
+  fprintf(stderr, "REC=|");
+  for (auto l = layout_.begin(); l != layout_.end(); ++l) {
+    // fprintf(stderr, "%s:", l->name.c_str());
+    if (l->type == LayoutItem::HEXADECIMAL) {
+      for (i = 0; i < l->maxLength; i++, pos++)
+        fprintf(stderr, "%02x", recbuf[pos]);
+    } else {
+      assert(l->type == LayoutItem::STRING);
+      for (i = 0; i < l->maxLength; i++, pos++)
+        fprintf(stderr, "%c", recbuf[pos] ? recbuf[pos] : '.');
+    }
+    fprintf(stderr, "|");
+  }
+  fprintf(stderr, " %s\n", pSuffix);
 }
 
-
-void VsamFile::Write(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  obj->lastrc_ = fwrite(obj->buf_, 1, obj->reclen_, obj->stream_);
-  if (obj->buf_) {
-    free(obj->buf_);
-    obj->buf_ = NULL;
+void VsamFile::WriteExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  DCHECK(pdata->recbuf_ != nullptr);
+#ifdef DEBUG
+  fprintf(stderr, "WriteExecute fwrite() to %p, tid=%d, reclen=%d: ", stream_,
+          gettid(), reclen_);
+  for (int i = 0; i < reclen_; i++)
+    fprintf(stderr, "%02x ", pdata->recbuf_[i]);
+  fprintf(stderr, "\n");
+#endif
+  int nelem = fwrite(pdata->recbuf_, 1, reclen_, stream_);
+  int r15 = R15;
+#ifdef DEBUG
+  fprintf(stderr, "WriteExecute fwrite() wrote %d bytes, errno=%d, errno2=%d\n",
+          nelem, errno, __errno2());
+#endif
+  if (nelem != reclen_) {
+    if (r15 == 8)
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "write error: an attempt was made to store a record with "
+                     "a duplicate key");
+    else
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "write error: fwrite() failed");
+    return;
   }
-  if (obj->keybuf_) {
-    free(obj->keybuf_);
-    obj->keybuf_ = NULL;
-  }
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+  displayRecord(pdata->recbuf_, "fwrite() in Write");
+#endif
+  pdata->rc_ = 0;
 }
 
-
-void VsamFile::Update(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  int ret = fupdate(obj->buf_, obj->reclen_, obj->stream_);
-  if (ret == 0) {
-    //TODO: error
+void VsamFile::UpdateExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  DCHECK(pdata->recbuf_ != nullptr);
+#ifdef DEBUG
+  fprintf(stderr, "UpdateExecute fupdate() to %p, tid=%d: ", stream_, gettid());
+  for (int i = 0; i < reclen_; i++)
+    fprintf(stderr, "%02x ", pdata->recbuf_[i]);
+  fprintf(stderr, "\n");
+#endif
+  int nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
+  int r15 = R15;
+#ifdef DEBUG
+  fprintf(stderr, "UpdateExecute fupdate() wrote %d bytes\n", nbytes);
+#endif
+  if (nbytes != reclen_) {
+    if (r15 == 8)
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "update error: an attempt was made to store a record with "
+                     "a duplicate key");
+    else
+      createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                     "update error: fupdate() failed");
+    return;
   }
-  free(obj->buf_);
-  obj->buf_ = NULL;
-  if (obj->keybuf_) {
-    free(obj->keybuf_);
-    obj->keybuf_ = NULL;
-  }
+  pdata->rc_ = 0;
+#if defined(DEBUG) || defined(DEBUG_CRUD)
+  displayRecord(pdata->recbuf_, "fupdate() in Update");
+#endif
 }
 
+// static
+void VsamFile::DeallocExecute(UvWorkData *pdata) {
+  DCHECK(pdata->rc_ != 0);
+  DCHECK(pdata->path_.length() > 0);
+  std::string dataset = formatDatasetName(pdata->path_);
+#ifdef DEBUG
+  fprintf(stderr, "DeallocExecute remove() from tid=%d\n", gettid());
+#endif
+  pdata->rc_ = remove(dataset.c_str());
+  int r15 = R15;
+#ifdef DEBUG
+  fprintf(stderr, "DeallocExecute remove() returned %d\n", pdata->rc_);
+#endif
+  if (pdata->rc_ != 0)
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), r15,
+                   "dealloc error: remove() failed");
+}
 
-void VsamFile::Dealloc(uv_work_t* req) {
-  VsamFile* obj = (VsamFile*)(req->data);
-
+// static
+std::string VsamFile::formatDatasetName(const std::string &path) {
   std::ostringstream dataset;
-  dataset << "//'" << obj->path_.c_str() << "'";
-
-  obj->lastrc_ = remove(dataset.str().c_str());
+  if (path[0] == '/' && path[1] == '/' && path[2] == '\'')
+    dataset << path;
+  else
+    dataset << "//'" << path << "'";
+  return dataset.str();
 }
 
-
-void VsamFile::DeallocCallback(uv_work_t* req, int status) {
-  VsamFile* obj = (VsamFile*)(req->data);
-  delete req;
-
-  Napi::HandleScope scope(obj->env_);
-  if (status == UV_ECANCELED) {
-    return;
-  }
-  else if (obj->lastrc_ != 0) {
-    obj->cb_.Call(obj->env_.Global(), {Napi::String::New(obj->env_, "Couldn't deallocate dataset")});
-  }
-  else {
-    obj->cb_.Call(obj->env_.Global(), {obj->env_.Null()});
-  }
-}
-
-
-static std::string& createErrorMsg (std::string& errmsg, int err, int err2, const char* title) {
-  // err is errno, err2 is __errno2()
-  errmsg = title;
-  std::string e(strerror(err));
-  if (!e.empty())
-    errmsg += ": " + e;
-  if (err2) {
-    char ebuf[32];
-    sprintf(ebuf, " (errno2=0x%08x)", err2);
-    errmsg += ebuf;
-  }
-  return errmsg;
-}
-
-
-static bool isDatasetExist (const char* path, int* perr=0, int* perr2=0 ) {
-  FILE *stream = fopen(path, "rb,type=record");
+// static
+bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
+                              int *pr15) {
+  std::string dataset = formatDatasetName(path);
+  FILE *stream = fopen(dataset.c_str(), "rb,type=record");
+  if (pr15)
+    *pr15 = R15;
   int err2 = __errno2();
-  if (perr) *perr = errno;
-  if (perr2) *perr2 = err2;
-  if (stream != NULL) {
+  if (perr)
+    *perr = errno;
+  if (perr2)
+    *perr2 = err2;
+#ifdef DEBUG
+  fprintf(stderr,
+          "isDatasetExist fopen(%s, rb,type=record) returned %p, tid=%d\n",
+          dataset.c_str(), stream, gettid());
+#endif
+  if (stream != nullptr) {
+#ifdef DEBUG
+    fprintf(stderr, "isDatasetExist() fclose(%p)\n", stream);
+#endif
     fclose(stream);
     return true;
   }
@@ -269,522 +426,366 @@ static bool isDatasetExist (const char* path, int* perr=0, int* perr2=0 ) {
     return false;
   }
   if (err2 == 0xC00A0022) {
-    // 0xC00A0022 could be if opening an empty dataset as read-only, double-check:
-    stream = fopen(path, "rb+,type=record");
-    if (perr) *perr = errno;
-    if (perr2) *perr2 = __errno2();
-    if (stream == NULL)
+    // 0xC00A0022 could be if opening an empty dataset as read-only,
+    // double-check:
+    stream = fopen(dataset.c_str(), "rb+,type=record");
+#ifdef DEBUG
+    fprintf(stderr,
+            "isDatasetExist fopen(%s, rb+,type=record) returned %p, tid=%d\n",
+            dataset.c_str(), stream, gettid());
+#endif
+    if (perr)
+      *perr = errno;
+    if (perr2)
+      *perr2 = __errno2();
+    if (stream == nullptr) {
       return false;
+    }
+#ifdef DEBUG
+    fprintf(stderr, "isDatasetExist fclose(%p)\n", stream);
+#endif
     fclose(stream);
     return true;
   }
   return false;
 }
 
+void VsamFile::open(UvWorkData *pdata) {
+  DCHECK(rc_ != 0);
+  DCHECK(pdata == nullptr);
+  DCHECK(stream_ == nullptr);
+  std::string dsname = formatDatasetName(path_);
+  stream_ = fopen(dsname.c_str(), omode_.c_str());
+  int r15 = R15;
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
+          dsname.c_str(), omode_.c_str(), stream_, gettid());
+#endif
+  int err = errno;
+  int err2 = __errno2();
 
-VsamFile::VsamFile(const Napi::CallbackInfo& info)
-: Napi::ObjectWrap<VsamFile>(info),
-    env_(info.Env()),
-    stream_(NULL),
-    keylen_(-1),
-    lastrc_(-1),
-    buf_(NULL),
-    keybuf_(NULL),
-    keybuf_len_(0) {
-  Napi::HandleScope scope(env_);
-  int err, err2;
-
-  if (info.Length() != 5) {
-    Napi::Error::New(env_, "Wrong number of arguments to VsamFile::VsamFile")
-        .ThrowAsJavaScriptException();
+  if (stream_ == nullptr) {
+    createErrorMsg(errmsg_, errno, __errno2(), r15,
+                   "open error: fopen() failed");
     return;
   }
+  rc_ = setKeyRecordLengths("open");
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: VSAM dataset opened rc=%d.\n", rc_);
+#endif
+}
 
-  path_ = static_cast<std::string>(info[0].As<Napi::String>());
-  Napi::Buffer<std::vector<LayoutItem>> b = info[1].As<Napi::Buffer<std::vector<LayoutItem>>>();
-  layout_ = *(static_cast<std::vector<LayoutItem>*>(b.Data()));
-  bool alloc(static_cast<bool>(info[2].As<Napi::Boolean>()));
-  key_i_ = static_cast<int>(info[3].As<Napi::Number>().Int32Value());
-  omode_ = static_cast<std::string>(info[4].As<Napi::String>());
-
-  std::ostringstream dataset;
-  dataset << "//'" << path_.c_str() << "'";
-
-  if (!alloc) {
-    stream_ = fopen(dataset.str().c_str(), omode_.c_str());
-    err = errno;
-    err2 = __errno2();
-
-    if (stream_ == NULL) {
-      createErrorMsg(errmsg_, err, err2, "Failed to open dataset");
-      return;
-    }
-  } else {
-    if (isDatasetExist(dataset.str().c_str(),&err,&err2)) {
-      errmsg_ = "Dataset already exists";
-      return;
-    }
-    if (err2 != 0xC00B0641) {
-      // 0xC00B0641 is file not found
-      createErrorMsg(errmsg_, err, err2, "Unexpected fopen error");
-      return;
-    }
-
-    std::ostringstream ddname;
-    ddname << "NAMEDD";
-
-    __dyn_t dyn;
-    dyninit(&dyn);
-    dyn.__dsname = &(path_[0]);
-    dyn.__ddname = &(ddname.str()[0]);
-    dyn.__normdisp = __DISP_CATLG;
-    dyn.__lrecl = std::accumulate(layout_.begin(), layout_.end(), 0,
-                                  [](int n, LayoutItem& l) -> int { return n + l.maxLength; });
-    dyn.__keylength = layout_[0].maxLength;
-    dyn.__recorg = __KS;
-    if (dynalloc(&dyn) != 0) {
-      errmsg_ = "Failed to allocate dataset";
-      return;
-    }
-    stream_ = fopen(dataset.str().c_str(), "ab+,type=record");
-    if (stream_ == NULL) {
-      createErrorMsg(errmsg_, errno, __errno2(), "Failed to open new dataset");
-      return;
-    }
+void VsamFile::alloc(UvWorkData *pdata) {
+  DCHECK(rc_ != 0);
+  DCHECK(pdata == nullptr);
+  DCHECK(stream_ == nullptr);
+  int err, err2, r15;
+  std::string dsname = formatDatasetName(path_);
+  if (isDatasetExist(dsname.c_str(), &err, &err2, &r15)) {
+    errmsg_ = "Dataset already exists";
+    return;
   }
+  if (err2 != 0xC00B0641) {
+    // 0xC00B0641 is file not found
+    createErrorMsg(errmsg_, err, err2, r15, "alloc error: fopen() failed");
+    return;
+  }
+  std::ostringstream ddname;
+  ddname << "NAMEDD";
 
+  __dyn_t dyn;
+  dyninit(&dyn);
+  dyn.__dsname = &(path_[0]);
+  dyn.__ddname = &(ddname.str()[0]);
+  dyn.__normdisp = __DISP_CATLG;
+  dyn.__lrecl = std::accumulate(
+      layout_.begin(), layout_.end(), 0,
+      [](int n, LayoutItem &l) -> int { return n + l.maxLength; });
+  dyn.__keyoffset = std::accumulate(
+      layout_.begin(), layout_.begin() + key_i_, 0,
+      [](int n, LayoutItem &l) -> int { return n + l.maxLength; });
+  dyn.__keylength = layout_[key_i_].maxLength;
+  dyn.__recorg = __KS;
+  if (dynalloc(&dyn) != 0) {
+    createErrorMsg(errmsg_, err, err2, R15, "alloc error: dynalloc() failed");
+    return;
+  }
+  stream_ = fopen(dsname.c_str(), "rb+,type=record");
+  r15 = R15;
+#ifdef DEBUG
+  fprintf(stderr, "VsamFile: fopen(%s, rb+,type=record) returned %p, tid=%d\n",
+          dsname.c_str(), stream_, gettid());
+#endif
+  if (stream_ == nullptr) {
+    createErrorMsg(errmsg_, errno, __errno2(), r15,
+                   "open error: fopen() failed to open new dataset");
+    return;
+  }
+  rc_ = setKeyRecordLengths("alloc");
+#ifdef DEBUG
+  if (rc_ == 0)
+    fprintf(stderr,
+            "VsamFile: VSAM dataset created and opened successfully.\n");
+#endif
+}
+
+int VsamFile::setKeyRecordLengths(const std::string &errPrefix) {
+  DCHECK(stream_ != nullptr);
   fldata_t dinfo;
-  fldata(stream_, NULL, &dinfo);
+  fldata(stream_, nullptr, &dinfo);
   keylen_ = dinfo.__vsamkeylen;
   reclen_ = dinfo.__maxreclen;
-  if (keylen_ != layout_[0].maxLength) {
-    errmsg_ = "Incorrect key length";
-    fclose(stream_);
-    stream_ = NULL;
-    return;
+  if (keylen_ == layout_[key_i_].maxLength) {
+    return 0;
   }
-  lastrc_ = 0;
+
+  errmsg_ = errPrefix + " error: key length " + std::to_string(keylen_) +
+            " doesn't match length " +
+            std::to_string(layout_[key_i_].maxLength) + " in schema.";
+#ifdef DEBUG
+  fprintf(stderr, "%s setKeyRecordLengths %s\nClosing stream %p",
+          errPrefix.c_str(), errmsg_.c_str(), stream_);
+#endif
+  fclose(stream_);
+  stream_ = nullptr;
+  return -1;
 }
 
+VsamFile::VsamFile(const std::string &path,
+                   const std::vector<LayoutItem> &layout, int key_i, int keypos,
+                   const std::string &omode)
+    : path_(path), layout_(layout), key_i_(key_i), keypos_(keypos),
+      omode_(omode), stream_(nullptr), keylen_(0), rc_(1) {
+#ifdef DEBUG
+  fprintf(stderr, "In VsamFile constructor for %s.\n", path_.c_str());
+#endif
+  // open() or alloc() should be called directly by WrappedVsam that created
+  // this.
+  vsamThread_ = std::thread(vsamThread, this, &vsamThreadCV_,
+                            &vsamThreadMmutex_, &vsamThreadQueue_);
+}
 
 VsamFile::~VsamFile() {
-  if (stream_ != NULL)
+#ifdef DEBUG
+  fprintf(stderr, "~VsamFile: this=%p, stream_=%p.\n", this, stream_);
+#endif
+  if (stream_ != nullptr) {
+#ifdef DEBUG
+    fprintf(stderr, "~VsamFile: fclose(%p)\n", stream_);
+#endif
     fclose(stream_);
+    stream_ = nullptr;
+  }
 }
 
-
-void VsamFile::Init(Napi::Env env, Napi::Object exports) {
-  // Prepare constructor template
-  Napi::HandleScope scope(env);
-
-  Napi::Function func = DefineClass(env, "VsamFile", {
-    InstanceMethod("read", &VsamFile::Read),
-    InstanceMethod("find", &VsamFile::FindEq),
-    InstanceMethod("findeq", &VsamFile::FindEq),
-    InstanceMethod("findge", &VsamFile::FindGe),
-    InstanceMethod("findfirst", &VsamFile::FindFirst),
-    InstanceMethod("findlast", &VsamFile::FindLast),
-    InstanceMethod("update", &VsamFile::Update),
-    InstanceMethod("write", &VsamFile::Write),
-    InstanceMethod("delete", &VsamFile::Delete),
-    InstanceMethod("close", &VsamFile::Close),
-    InstanceMethod("dealloc", &VsamFile::Dealloc)
-  });
-
-  constructor_ = Napi::Persistent(func);
-  constructor_.SuppressDestruct();
-
-  exports.Set("VsamFile", func);
-}
-
-
-Napi::Value VsamFile::Construct(const Napi::CallbackInfo& info, bool alloc) {
-  Napi::Env env = info.Env();
-
-  std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
-  Napi::Object schema = info[1].ToObject();
-  std::string mode = info.Length() == 2 ? "ab+,type=record"
-                     : (static_cast<std::string>(info[2].As<Napi::String>()));
-  Napi::Array properties = schema.GetPropertyNames();
-  std::vector<LayoutItem> layout;
-  int key_i = 0; // for its data type - default to first field if no "key" found
-  for (int i = 0; i < properties.Length(); ++i) {
-    std::string name (static_cast<std::string>(Napi::String (env, properties.Get(i).ToString())));
-
-    Napi::Object item = schema.Get(properties.Get(i)).As<Napi::Object>();
-    if (item.IsEmpty()) {
-      Napi::Error::New(env, "JSON is incorrect.").ThrowAsJavaScriptException();
-      return env.Null();
-    }
-
-    Napi::Value length = item.Get(Napi::String::New(env,"maxLength"));
-    if (length.IsEmpty() || !length.IsNumber()) {
-      Napi::Error::New(env, "JSON is incorrect.").ThrowAsJavaScriptException();
-      return env.Null();
-    }
-
-    Napi::Value jtype = item.Get(Napi::String::New(env,"type"));
-    if (jtype.IsEmpty()) {
-      Napi::Error::New(env, "JSON \"type\" is empty.").ThrowAsJavaScriptException();
-      return env.Null();
-    }
-
-    std::string stype(static_cast<std::string>(jtype.As<Napi::String>()));
-    if (!strcmp(stype.c_str(),"string")) {
-      layout.push_back(LayoutItem(name, length.ToNumber().Int32Value(), LayoutItem::STRING));
-    } else if (!strcmp(stype.c_str(),"hexadecimal")) {
-      layout.push_back(LayoutItem(name, length.ToNumber().Int32Value(), LayoutItem::HEXADECIMAL));
-    } else {
-      Napi::Error::New(env, "JSON \"type\" must be \"string\" or \"hexadecimal\"").ThrowAsJavaScriptException();
-      return env.Null();
-    }
-
-    if (!strcmp(name.c_str(),"key")) {
-      key_i = i;
-    }
-  }
-
-  Napi::HandleScope scope(env);
-  Napi::Object obj = constructor_.New({
-    Napi::String::New(env, path),
-    Napi::Buffer<std::vector<LayoutItem>>::Copy(env, &layout, layout.size()),
-    Napi::Boolean::New(env, alloc),
-    Napi::Number::New(env, key_i),
-    Napi::String::New(env, mode)});
-
-  VsamFile* p = Napi::ObjectWrap<VsamFile>::Unwrap(obj);
-  if (p->lastrc_) {
-    Napi::Error::New(env, p->errmsg_.c_str()).ThrowAsJavaScriptException();
-    delete p;
-    return env.Null();
-  }
-  return obj;
-}
-
-
-Napi::Value VsamFile::AllocSync(const Napi::CallbackInfo& info) {
-  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject()) {
-    Napi::Error::New(info.Env(), "Wrong arguments to allocSync(), must be: "\
-                          "VSAM dataset name, schema JSON object").ThrowAsJavaScriptException();
-    return info.Env().Null();
-  }
-  return Construct(info, true);
-}
-
-
-Napi::Value VsamFile::OpenSync(const Napi::CallbackInfo& info) {
-  if ((info.Length() < 2 || !info[0].IsString() || !info[1].IsObject())
-  ||  (info.Length() == 3 && !info[2].IsString())
-  ||  (info.Length() > 3)) {
-    Napi::Error::New(info.Env(), "Wrong arguments to openSync(), must be: "\
-                          "VSAM dataset name, schema JSON object, optional fopen() mode")
-                          .ThrowAsJavaScriptException();
-    return info.Env().Null();
-  }
-  return Construct(info, false);
-}
-
-
-Napi::Boolean VsamFile::Exist(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  if (info.Length() != 1) {
-    // Throw an Error that is passed back to JavaScript
-    Napi::Error::New(env, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return Napi::Boolean::New(env, false);
-  }
-
-  if (!info[0].IsString()) {
-    Napi::TypeError::New(env, "Wrong arguments").ThrowAsJavaScriptException();
-    return Napi::Boolean::New(env, false);
-  }
-
-  std::string path (static_cast<std::string>(info[0].As<Napi::String>()));
-  std::ostringstream dataset;
-  dataset << "//'" << path.c_str() << "'";
-  return Napi::Boolean::New(env, isDatasetExist(dataset.str().c_str()));
-}
-
-
-void VsamFile::Close(const Napi::CallbackInfo& args) {
-  if (stream_ == NULL) {
-    Napi::Error::New(env_, "VSAM file is not open.").ThrowAsJavaScriptException();
+void VsamFile::Close(UvWorkData *pdata) {
+  // non-async
+  if (stream_ == nullptr) {
+    pdata->errmsg_ = "VSAM dataset is not open.";
     return;
   }
-
+#ifdef DEBUG
+  fprintf(stderr, "Close fclose(%p)\n", stream_);
+#endif
   if (fclose(stream_)) {
-    Napi::Error::New(env_, "Error closing file.").ThrowAsJavaScriptException();
+    createErrorMsg(pdata->errmsg_, errno, __errno2(), R15,
+                   "close error: fclose() failed");
     return;
   }
-  stream_ = NULL;
+  stream_ = nullptr;
+#ifdef DEBUG
+  fprintf(stderr, "VSAM dataset closed successfully.\n");
+#endif
+  pdata->rc_ = 0;
 }
 
+int VsamFile::hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr) {
+  DCHECK(hexstr != nullptr && hexbuf != nullptr && buflen > 0);
+  memset(hexbuf, 0, buflen);
+  if (hexstr[0] == 0)
+    return 0;
 
-void VsamFile::Delete(const Napi::CallbackInfo& info) {
-  if (info.Length() < 1) {
-    // Throw an Error that is passed back to JavaScript
-    Napi::Error::New(env_, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return;
+  char xx[2];
+  int i, j, x;
+  if (hexstr[0] == '0' && (hexstr[1] == 'x' || hexstr[1] == 'X'))
+    hexstr += 2;
+  else if (hexstr[0] == 'x' || hexstr[0] == 'X')
+    hexstr += 1;
+
+  int hexstrlen = strlen(hexstr);
+  DCHECK(hexstrlen <= (buflen * 2));
+  for (i = 0, j = 0; j < buflen && i < hexstrlen - (hexstrlen % 2); ++j) {
+    xx[0] = hexstr[i++];
+    xx[1] = hexstr[i++];
+    sscanf(xx, "%2x", &x);
+    hexbuf[j] = x;
   }
-
-  if (!info[0].IsFunction()) {
-    Napi::TypeError::New(env_, "Wrong arguments.").ThrowAsJavaScriptException();
-    return;
+  if (j < buflen && hexstrlen % 2) {
+    DCHECK(i < strlen(hexstr));
+    xx[0] = hexstr[i];
+    xx[1] = '0';
+    sscanf(xx, "%2x", &x);
+    hexbuf[j++] = x;
   }
-
-  uv_work_t* request = new uv_work_t;
-  request->data = this;
-  cb_ = Napi::Persistent(info[0].As<Napi::Function>());
-  uv_queue_work(uv_default_loop(), request, Delete, DeleteCallback);
+  DCHECK(j <= buflen);
+  return j;
 }
 
+int VsamFile::bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
+                             int hexbuflen) {
+  DCHECK(hexstr != nullptr && hexbuf != nullptr && hexbuflen > 0);
+  int i, j;
+  for (i = 0, j = 0; i < hexbuflen; i++, j += 2)
+    sprintf(hexstr + j, "%02x", hexbuf[i]);
 
-void VsamFile::Write(const Napi::CallbackInfo& info) {
-  if (info.Length() < 2) {
-    // Throw an Error that is passed back to JavaScript
-    Napi::Error::New(env_, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return;
-  }
+  hexstr[j] = 0;
 
-  if (!info[1].IsFunction()) {
-    Napi::TypeError::New(env_, "Wrong arguments.").ThrowAsJavaScriptException();
-    return;
-  }
-
-  Napi::Object record = info[0].ToObject();
-  if (buf_) {
-    free(buf_);
-  }
-  buf_ = malloc(reclen_); //TODO: error
-  memset(buf_,0,reclen_);
-  char* buf = (char*)buf_;
-  for(auto i = layout_.begin(); i != layout_.end(); ++i) {
-    Napi::Value field = record.Get(&(i->name[0]));
-    if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
-      std::string key = static_cast<std::string>(Napi::String (env_, field.ToString()));
-      if (i->type == LayoutItem::STRING) {
-        memcpy(buf, key.c_str(), key.length());
-      } else {
-        hexstrToBuffer(buf, i->maxLength, key.c_str());
-      }
-    } else {
-      Napi::TypeError::New(env_, "Unexpected JSON data type").ThrowAsJavaScriptException();
-      return;
-    }
-    buf += i->maxLength;
-  }
-
-  uv_work_t* request = new uv_work_t;
-  request->data = this;
-  cb_ = Napi::Persistent(info[1].As<Napi::Function>());
-  uv_queue_work(uv_default_loop(), request, Write, WriteCallback);
+  // remove trailing '00's
+  for (--j; j > 2 && hexstr[j] == '0' && hexstr[j - 1] == '0'; j -= 2)
+    hexstr[j - 1] = 0;
+  DCHECK(j < hexstrlen);
+  return j;
 }
 
-
-void VsamFile::Update(const Napi::CallbackInfo& info) {
-  if (info.Length() < 2) {
-    // Throw an Error that is passed back to JavaScript
-    Napi::Error::New(env_, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return;
+bool VsamFile::isStrValid(const LayoutItem &item, const std::string &str,
+                          const std::string &errPrefix, std::string &errmsg) {
+  int len = str.length();
+  if (len < item.minLength || len < 0) {
+    errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
+             std::to_string(item.minLength) + " or more.";
+    return false;
+  } else if (len == 0)
+    return true;
+  if (str.length() > item.maxLength) {
+    errmsg = errPrefix + " error: length " + std::to_string(str.length()) +
+             " of '" + item.name.c_str() + "' exceeds schema's length " +
+             std::to_string(item.maxLength) + ".";
+    return false;
   }
-
-  if (!info[1].IsFunction()) {
-    Napi::TypeError::New(env_, "Wrong arguments.").ThrowAsJavaScriptException();
-    return;
-  }
-
-  Napi::Object record = info[0].ToObject();
-  if (buf_) {
-    free(buf_);
-  }
-  buf_ = malloc(reclen_); //TODO: error
-  memset(buf_,0,reclen_);
-  char* buf = (char*)buf_;
-  for(auto i = layout_.begin(); i != layout_.end(); ++i) {
-    Napi::Value field = record.Get(&(i->name[0]));
-    if (i->type == LayoutItem::STRING || i->type == LayoutItem::HEXADECIMAL) {
-      std::string key = static_cast<std::string>(Napi::String (env_, field.ToString()));
-      if (i->type == LayoutItem::STRING) {
-        memcpy(buf, key.c_str(), key.length());
-      } else {
-        hexstrToBuffer(buf, i->maxLength, key.c_str());
-      }
-      buf += i->maxLength;
-
-    } else {
-      Napi::TypeError::New(env_, "Unexpected JSON data type").ThrowAsJavaScriptException();
-      return;
-    }
-  }
-
-  uv_work_t* request = new uv_work_t;
-  request->data = this;
-  cb_ = Napi::Persistent(info[1].As<Napi::Function>());
-  uv_queue_work(uv_default_loop(), request, Update, UpdateCallback);
+  return true;
 }
 
-void VsamFile::FindEq(const Napi::CallbackInfo& info) {
-  Find(info, __KEY_EQ);
-}
-
-void VsamFile::FindGe(const Napi::CallbackInfo& info) {
-  Find(info, __KEY_GE);
-}
-
-void VsamFile::FindFirst(const Napi::CallbackInfo& info) {
-  Find(info, __KEY_FIRST);
-}
-
-void VsamFile::FindLast(const Napi::CallbackInfo& info) {
-  Find(info, __KEY_LAST);
-}
-
-void VsamFile::Find(const Napi::CallbackInfo& info, int equality) {
-  std::string key;
-  int callbackArg = 0;
-  char* keybuf = NULL;
-  int keybuf_len = 0;
-
-  if (equality != __KEY_LAST && equality != __KEY_FIRST)  {
-    if (info.Length() < 2) {
-      // Throw an Error that is passed back to JavaScript
-      Napi::Error::New(env_, "Wrong number of arguments.").ThrowAsJavaScriptException();
-      return;
-    }
-
-    if (info[0].IsString()) {
-      key = static_cast<std::string>(info[0].As<Napi::String>());
-      callbackArg = 1;
-    } else if (info[0].IsObject()) {
-      char* buf = info[0].As<Napi::Buffer<char>>().Data();
-      if (!info[1].IsNumber()) {
-        Napi::Error::New(env_, "Buffer argument must be followed by its length.").ThrowAsJavaScriptException();
-        return;
-      }
-      keybuf_len = info[1].As<Napi::Number>().Uint32Value();
-      if (keybuf_len > 0) {
-        keybuf = (char*)malloc(keybuf_len); // TODO check error
-        memcpy(keybuf, buf, keybuf_len);
-      } else {
-        Napi::TypeError::New(env_, "Key buffer length must be greater than 0.").ThrowAsJavaScriptException();
-        return;
-      }
-      callbackArg = 2;
-    } else {
-      Napi::TypeError::New(env_, "First argument must be either a string or a Buffer object.").ThrowAsJavaScriptException();
-      return;
-    }
-    if (!info[callbackArg].IsFunction()) {
-      char err[64];
-      if (callbackArg==1) {
-        strcpy(err,"Second argument must be a function.");
-      } else if (callbackArg==2) {
-        strcpy(err,"Thrid argument must be a function.");
-      }
-      Napi::Error::New(env_,err).ThrowAsJavaScriptException();
-      return;
-    }
-  } else {
-    if (info.Length() < 1) {
-      Napi::Error::New(env_, "Wrong number of arguments; one argument expected.").ThrowAsJavaScriptException();
-      return;
-    }
-    if (!info[0].IsFunction()) {
-      Napi::TypeError::New(env_, "First argument must be a function.").ThrowAsJavaScriptException();
-      return;
-    }
+bool VsamFile::isHexBufValid(const LayoutItem &item, const char *buf, int len,
+                             const std::string &errPrefix,
+                             std::string &errmsg) {
+  if (len < item.minLength || len < 0) {
+    errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
+             std::to_string(item.minLength) + " or more.";
+    return false;
+  } else if (len == 0)
+    return true;
+  if (len > item.maxLength) {
+    errmsg = errPrefix + " error: length " + std::to_string(len) + " of '" +
+             item.name + "' exceeds schema's length " +
+             std::to_string(item.maxLength) + ".";
+    return false;
   }
-
-  uv_work_t* request = new uv_work_t;
-  request->data = this;
-  cb_ = Napi::Persistent(info[callbackArg].As<Napi::Function>());
-
-  if (!keybuf) {
-    key_ = key;
-  } else {
-    key_ = "";
-    keybuf_ = keybuf;
-    keybuf_len_ = keybuf_len;
-  }
-  equality_ = equality;
-
-  uv_queue_work(uv_default_loop(), request, Find, ReadCallback);
+  return true;
 }
 
-void VsamFile::Read(const Napi::CallbackInfo& info) {
-  if (info.Length() < 1) {
-    // Throw an Error that is passed back to JavaScript
-    Napi::Error::New(env_, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return;
+bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
+                             const std::string &errPrefix,
+                             std::string &errmsg) {
+  int len = hexstr.length();
+  if (len < item.minLength || len < 0) {
+    errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
+             std::to_string(item.minLength) + " or more.";
+    return false;
+  } else if (len == 0)
+    return true;
+  int start = 0;
+  if (hexstr[0] == '0' && (hexstr[1] == 'x' || hexstr[1] == 'X')) {
+    start = 2;
+  } else if (hexstr[0] == 'x' || hexstr[0] == 'X') {
+    start = 1;
   }
-
-  if (!info[0].IsFunction()) {
-    Napi::TypeError::New(env_, "Wrong arguments.").ThrowAsJavaScriptException();
-    return;
+  if (!std::all_of(hexstr.begin() + start, hexstr.end(), ::isxdigit)) {
+    errmsg = errPrefix + " error: hex string for '" + item.name +
+             "' must contain only hex digits 0-9 and a-f or A-F, with an "
+             "optional 0x prefix, found <" +
+             hexstr + ">.";
+    return false;
   }
-
-  uv_work_t* request = new uv_work_t;
-  request->data = this;
-  cb_ = Napi::Persistent(info[0].As<Napi::Function>());
-  uv_queue_work(uv_default_loop(), request, Read, ReadCallback);
+  len -= start;
+  int digits = (len + (len % 2)) / 2;
+  if (digits > item.maxLength) {
+    errmsg = errPrefix + " error: number of hex digits " +
+             std::to_string(digits) + " for '" + item.name +
+             "' exceed schema's length " + std::to_string(item.maxLength) +
+             ", found <" + hexstr + ">.";
+    return false;
+  }
+  return true;
 }
 
-
-void VsamFile::Dealloc(const Napi::CallbackInfo& info) {
-  if (info.Length() < 1) {
-    // Throw an Error that is passed back to JavaScript
-    Napi::Error::New(env_, "Wrong number of arguments.").ThrowAsJavaScriptException();
-    return;
+static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
+                                   int r15, const std::string &errPrefix) {
+  // err is errno, err2 is __errno2()
+  errmsg = errPrefix;
+  std::string e(strerror(err));
+  if (!e.empty())
+    errmsg += ": " + e;
+  if (err2 || r15) {
+    char ebuf[64];
+    sprintf(ebuf, " (R15=%d, errno2=0x%08x)", R15, err2);
+    errmsg += ebuf;
   }
-
-  if (!info[0].IsFunction()) {
-    Napi::TypeError::New(env_, "Wrong arguments.").ThrowAsJavaScriptException();
-    return;
-  }
-  if (stream_ != NULL) {
-    Napi::Error::New(env_, "Cannot dealloc an open VSAM file.").ThrowAsJavaScriptException();
-    return;
-  }
-  uv_work_t* request = new uv_work_t;
-  cb_ = Napi::Persistent(info[0].As<Napi::Function>());
-  request->data = this;
-  uv_queue_work(uv_default_loop(), request, Dealloc, DeallocCallback);
+  errmsg += '.';
+#ifdef DEBUG
+  fprintf(stderr, "%s\n", errmsg.c_str());
+#endif
+  return errmsg;
 }
 
-
-static const char* hexstrToBuffer (char* hexbuf, int buflen, const char* hexstr) {
-   const int hexstrlen = strlen(hexstr);
-   memset(hexbuf,0,buflen);
-   char xx[2];
-   int i, j, x;
-   for (i=0,j=0; i<hexstrlen-(hexstrlen%2); ) {
-     xx[0] = hexstr[i++];
-     xx[1] = hexstr[i++];
-     sscanf(xx,"%2x", &x);
-     hexbuf[j++] = x;
-   }
-   if (hexstrlen%2) {
-     xx[0] = hexstr[i];
-     xx[1] = '0';
-     sscanf(xx,"%2x", &x);
-     hexbuf[j] = x;
-   }
-   return hexbuf;
+int VsamFile::routeToVsamThread(VSAM_THREAD_MSGID msgid,
+                                void (VsamFile::*pWorkFunc)(UvWorkData *),
+                                UvWorkData *pdata) {
+  std::condition_variable cv;
+  ST_VsamThreadMsg msg = {msgid, cv, pWorkFunc, pdata, -1};
+  std::unique_lock<std::mutex> lck(vsamThreadMmutex_);
+  vsamThreadQueue_.push(&msg);
+  vsamThreadCV_.notify_one();
+  cv.wait(lck);
+  return msg.rc;
 }
 
-
-static const char* bufferToHexstr (char* hexstr, const char* hexbuf, const int hexbuflen) {
-   int i, j;
-   for (i=0,j=0; i<hexbuflen; i++,j+=2) {
-     if (hexbuf[i]==0) {
-       memset(hexstr+j,'0',2);
-     } else {
-       sprintf(hexstr+j,"%02x", hexbuf[i]);
-     }
-   }
-   hexstr[j] = 0;
-
-   //remove trailing '00's
-   for (--j; j>2 && hexstr[j]=='0' && hexstr[j-1]=='0'; j-=2)
-     hexstr[j-1] = 0;
-   return hexstr;
+int VsamFile::exitVsamThread() {
+  if (getVsamThreadId() == 0) {
+#ifdef DEBUG
+    fprintf(stderr, "exitVsamThread thread id is 0, nothing to do.\n");
+#endif
+    return 0;
+  }
+  if (!vsamThread_.joinable()) {
+#ifdef DEBUG
+    fprintf(stderr, "exitVsamThread thread %d not joinable, nothing to do.\n",
+            getVsamThreadId());
+#endif
+    return 0;
+  }
+  std::condition_variable cv;
+  ST_VsamThreadMsg msg = {MSG_EXIT, cv, nullptr, nullptr, -1};
+  std::unique_lock<std::mutex> lck(vsamThreadMmutex_);
+  vsamThreadQueue_.push(&msg);
+  vsamThreadCV_.notify_one();
+  cv.wait(lck);
+  if (vsamThread_.joinable()) {
+#ifdef DEBUG
+    fprintf(stderr, "exitVsamThread calling join() on thread %d...",
+            getVsamThreadId());
+    vsamThread_.join();
+    fprintf(stderr, "done\n.");
+#else
+    vsamThread_.join();
+#endif
+  }
+#ifdef DEBUG
+  else {
+    fprintf(stderr,
+            "exitVsamThread thread %d joinable state changed from true to "
+            "false, nothing to do.\n",
+            getVsamThreadId());
+  }
+#endif
+  return msg.rc;
 }

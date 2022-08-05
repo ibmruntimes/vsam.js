@@ -6,6 +6,8 @@
  */
 #include "VsamThread.h"
 
+#include <assert.h>
+
 #ifdef DEBUG
 static const char *getMessageStr(VSAM_THREAD_MSGID msgid) {
   switch (msgid) {

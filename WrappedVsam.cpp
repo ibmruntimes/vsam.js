@@ -1,15 +1,18 @@
 /*
  * Licensed Materials - Property of IBM
- * (C) Copyright IBM Corp. 2020, 2021. All Rights Reserved.
+ * (C) Copyright IBM Corp. 2020, 2022. All Rights Reserved.
  * US Government Users Restricted Rights - Use, duplication or disclosure
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
+#include <assert.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include <sstream>
+
 #include "WrappedVsam.h"
 #include "VsamThread.h"
-#include <stdio.h>
-#include <sstream>
-#include <unistd.h>
-#include <assert.h>
+
 
 Napi::FunctionReference WrappedVsam::constructor_;
 

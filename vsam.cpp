@@ -5,8 +5,10 @@
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
 
-#include "WrappedVsam.h"
 #include <napi.h>
+
+#include "WrappedVsam.h"
+
 
 Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
   WrappedVsam::Init(env, exports);

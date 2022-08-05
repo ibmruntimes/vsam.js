@@ -1,12 +1,13 @@
 /*
  * Licensed Materials - Property of IBM
- * (C) Copyright IBM Corp. 2020, 2021. All Rights Reserved.
+ * (C) Copyright IBM Corp. 2020, 2022. All Rights Reserved.
  * US Government Users Restricted Rights - Use, duplication or disclosure
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
+#include <assert.h>
+
 #include "VsamThread.h"
 
-#include <assert.h>
 
 #ifdef DEBUG
 static const char *getMessageStr(VSAM_THREAD_MSGID msgid) {

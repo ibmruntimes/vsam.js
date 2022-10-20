@@ -1,15 +1,20 @@
 /*
  * Licensed Materials - Property of IBM
- * (C) Copyright IBM Corp. 2017, 2021. All Rights Reserved.
+ * (C) Copyright IBM Corp. 2017, 2022. All Rights Reserved.
  * US Government Users Restricted Rights - Use, duplication or disclosure
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
-#include "VsamFile.h"
-#include "VsamThread.h"
+#include <assert.h>
 #include <dynit.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <numeric>
 #include <sstream>
-#include <unistd.h>
+
+#include "VsamFile.h"
+#include "VsamThread.h"
+
 
 // VSAM register 15 for interpreting some of the errors:
 // https://www.ibm.com/support/knowledgecenter/SSB27H_6.2.0/fa2mc2_vsevsam_return_and_error_codes.html
@@ -18,6 +23,8 @@
 static std::string &createErrorMsg(std::string &errmsg, int err, int err2,
                                    int r15, const std::string &errPrefix);
 
+#if 0
+// Currently not used, but keep it in case it's needed.
 static void print_amrc() {
   __amrc_type currErr = *__amrc;
   printf("R15 value = %d\n", currErr.__code.__feedback.__rc);
@@ -25,10 +32,11 @@ static void print_amrc() {
   printf("RBA = %d\n", currErr.__RBA);
   printf("Last op = %d\n", currErr.__last_op);
 }
+#endif
 
 int VsamFile::freadRecord(UvWorkData *pdata, int *pr15, bool expectEOF,
                           const char *pDisplayPrefix, const char *pErrPrefix) {
-  int nread = fread(pdata->recbuf_, 1, reclen_, stream_);
+  size_t nread = fread(pdata->recbuf_, 1, reclen_, stream_);
   *pr15 = R15;
   if (feof(stream_)) {
     if (expectEOF)
@@ -115,8 +123,6 @@ int VsamFile::FindExecute(UvWorkData *pdata, const char *buf, int buflen) {
 
 void VsamFile::FindExecute(UvWorkData *pdata) {
   DCHECK(pdata->rc_ != 0);
-  char *buf;
-
   DCHECK(pdata->recbuf_ == nullptr);
   pdata->recbuf_ = (char *)malloc(reclen_);
   DCHECK(pdata->recbuf_ != nullptr);
@@ -134,7 +140,7 @@ void VsamFile::FindUpdateExecute(UvWorkData *pdata) {
   memcpy(pupdrecbuf, pdata->recbuf_, reclen_);
 
   pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
-  int nread, r15;
+  int r15;
 
   for (pdata->count_ = 0; pdata->rc_ == 0;) {
     for (auto i = pdata->pFieldsToUpdate_->begin();
@@ -202,7 +208,7 @@ void VsamFile::FindDeleteExecute(UvWorkData *pdata) {
   DCHECK(pdata->recbuf_ != nullptr);
 
   pdata->rc_ = FindExecute(pdata, pdata->keybuf_, pdata->keybuf_len_);
-  int nread, r15;
+  int r15;
 
   for (pdata->count_ = 0; pdata->rc_ == 0;) {
     pdata->rc_ = 1;
@@ -290,16 +296,16 @@ void VsamFile::DeleteExecute(UvWorkData *pdata) {
 }
 
 void VsamFile::displayRecord(const char *recbuf, const char *pSuffix) {
-  int i, pos = 0;
+  int pos = 0;
   fprintf(stderr, "REC=|");
   for (auto l = layout_.begin(); l != layout_.end(); ++l) {
     // fprintf(stderr, "%s:", l->name.c_str());
     if (l->type == LayoutItem::HEXADECIMAL) {
-      for (i = 0; i < l->maxLength; i++, pos++)
+      for (size_t i = 0; i < l->maxLength; i++, pos++)
         fprintf(stderr, "%02x", recbuf[pos]);
     } else {
       assert(l->type == LayoutItem::STRING);
-      for (i = 0; i < l->maxLength; i++, pos++)
+      for (size_t i = 0; i < l->maxLength; i++, pos++)
         fprintf(stderr, "%c", recbuf[pos] ? recbuf[pos] : '.');
     }
     fprintf(stderr, "|");
@@ -317,7 +323,7 @@ void VsamFile::WriteExecute(UvWorkData *pdata) {
     fprintf(stderr, "%02x ", pdata->recbuf_[i]);
   fprintf(stderr, "\n");
 #endif
-  int nelem = fwrite(pdata->recbuf_, 1, reclen_, stream_);
+  size_t nelem = fwrite(pdata->recbuf_, 1, reclen_, stream_);
   int r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "WriteExecute fwrite() wrote %d bytes, errno=%d, errno2=%d\n",
@@ -348,7 +354,7 @@ void VsamFile::UpdateExecute(UvWorkData *pdata) {
     fprintf(stderr, "%02x ", pdata->recbuf_[i]);
   fprintf(stderr, "\n");
 #endif
-  int nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
+  size_t nbytes = fupdate(pdata->recbuf_, reclen_, stream_);
   int r15 = R15;
 #ifdef DEBUG
   fprintf(stderr, "UpdateExecute fupdate() wrote %d bytes\n", nbytes);
@@ -421,11 +427,11 @@ bool VsamFile::isDatasetExist(const std::string &path, int *perr, int *perr2,
     fclose(stream);
     return true;
   }
-  if (err2 == 0xC00B0641) {
+  if (err2 == static_cast<int>(0xC00B0641)) {
     // 0xC00B0641 is file not found
     return false;
   }
-  if (err2 == 0xC00A0022) {
+  if (err2 == static_cast<int>(0xC00A0022)) {
     // 0xC00A0022 could be if opening an empty dataset as read-only,
     // double-check:
     stream = fopen(dataset.c_str(), "rb+,type=record");
@@ -461,9 +467,6 @@ void VsamFile::open(UvWorkData *pdata) {
   fprintf(stderr, "VsamFile: fopen(%s, %s) returned %p, tid=%d\n",
           dsname.c_str(), omode_.c_str(), stream_, gettid());
 #endif
-  int err = errno;
-  int err2 = __errno2();
-
   if (stream_ == nullptr) {
     createErrorMsg(errmsg_, errno, __errno2(), r15,
                    "open error: fopen() failed");
@@ -485,7 +488,7 @@ void VsamFile::alloc(UvWorkData *pdata) {
     errmsg_ = "Dataset already exists";
     return;
   }
-  if (err2 != 0xC00B0641) {
+  if (err2 != static_cast<int>(0xC00B0641)) {
     // 0xC00B0641 is file not found
     createErrorMsg(errmsg_, err, err2, r15, "alloc error: fopen() failed");
     return;
@@ -552,10 +555,10 @@ int VsamFile::setKeyRecordLengths(const std::string &errPrefix) {
 }
 
 VsamFile::VsamFile(const std::string &path,
-                   const std::vector<LayoutItem> &layout, int key_i, int keypos,
-                   const std::string &omode)
-    : path_(path), layout_(layout), key_i_(key_i), keypos_(keypos),
-      omode_(omode), stream_(nullptr), keylen_(0), rc_(1) {
+                   const std::vector<LayoutItem> &layout, int key_i,
+                   size_t keypos, const std::string &omode)
+    : stream_(nullptr),  path_(path), omode_(omode), layout_(layout), rc_(1),
+      key_i_(key_i), keypos_(keypos), keylen_(0) {
 #ifdef DEBUG
   fprintf(stderr, "In VsamFile constructor for %s.\n", path_.c_str());
 #endif
@@ -599,42 +602,42 @@ void VsamFile::Close(UvWorkData *pdata) {
   pdata->rc_ = 0;
 }
 
-int VsamFile::hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr) {
+size_t VsamFile::hexstrToBuffer(char *hexbuf, size_t buflen, const char *hexstr) {
   DCHECK(hexstr != nullptr && hexbuf != nullptr && buflen > 0);
   memset(hexbuf, 0, buflen);
   if (hexstr[0] == 0)
     return 0;
 
   char xx[2];
-  int i, j, x;
+  size_t i, j, x;
   if (hexstr[0] == '0' && (hexstr[1] == 'x' || hexstr[1] == 'X'))
     hexstr += 2;
   else if (hexstr[0] == 'x' || hexstr[0] == 'X')
     hexstr += 1;
 
-  int hexstrlen = strlen(hexstr);
+  size_t hexstrlen = strlen(hexstr);
   DCHECK(hexstrlen <= (buflen * 2));
   for (i = 0, j = 0; j < buflen && i < hexstrlen - (hexstrlen % 2); ++j) {
     xx[0] = hexstr[i++];
     xx[1] = hexstr[i++];
-    sscanf(xx, "%2x", &x);
+    sscanf(xx, "%2zx", &x);
     hexbuf[j] = x;
   }
   if (j < buflen && hexstrlen % 2) {
     DCHECK(i < strlen(hexstr));
     xx[0] = hexstr[i];
     xx[1] = '0';
-    sscanf(xx, "%2x", &x);
+    sscanf(xx, "%2zx", &x);
     hexbuf[j++] = x;
   }
   DCHECK(j <= buflen);
   return j;
 }
 
-int VsamFile::bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
-                             int hexbuflen) {
+size_t VsamFile::bufferToHexstr(char *hexstr, size_t hexstrlen,
+                                const char *hexbuf, size_t hexbuflen) {
   DCHECK(hexstr != nullptr && hexbuf != nullptr && hexbuflen > 0);
-  int i, j;
+  size_t i, j;
   for (i = 0, j = 0; i < hexbuflen; i++, j += 2)
     sprintf(hexstr + j, "%02x", hexbuf[i]);
 
@@ -649,8 +652,8 @@ int VsamFile::bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
 
 bool VsamFile::isStrValid(const LayoutItem &item, const std::string &str,
                           const std::string &errPrefix, std::string &errmsg) {
-  int len = str.length();
-  if (len < item.minLength || len < 0) {
+  size_t len = str.length();
+  if (len < item.minLength) {
     errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
              std::to_string(item.minLength) + " or more.";
     return false;
@@ -665,10 +668,10 @@ bool VsamFile::isStrValid(const LayoutItem &item, const std::string &str,
   return true;
 }
 
-bool VsamFile::isHexBufValid(const LayoutItem &item, const char *buf, int len,
-                             const std::string &errPrefix,
+bool VsamFile::isHexBufValid(const LayoutItem &item, const char *buf,
+                             size_t len, const std::string &errPrefix,
                              std::string &errmsg) {
-  if (len < item.minLength || len < 0) {
+  if (len < item.minLength) {
     errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
              std::to_string(item.minLength) + " or more.";
     return false;
@@ -686,8 +689,8 @@ bool VsamFile::isHexBufValid(const LayoutItem &item, const char *buf, int len,
 bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
                              const std::string &errPrefix,
                              std::string &errmsg) {
-  int len = hexstr.length();
-  if (len < item.minLength || len < 0) {
+  size_t len = hexstr.length();
+  if (len < item.minLength) {
     errmsg = errPrefix + " error: length of '" + item.name + "' must be " +
              std::to_string(item.minLength) + " or more.";
     return false;
@@ -707,7 +710,7 @@ bool VsamFile::isHexStrValid(const LayoutItem &item, const std::string &hexstr,
     return false;
   }
   len -= start;
-  int digits = (len + (len % 2)) / 2;
+  size_t digits = (len + (len % 2)) / 2;
   if (digits > item.maxLength) {
     errmsg = errPrefix + " error: number of hex digits " +
              std::to_string(digits) + " for '" + item.name +

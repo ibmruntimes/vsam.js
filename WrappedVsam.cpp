@@ -1,13 +1,18 @@
 /*
  * Licensed Materials - Property of IBM
- * (C) Copyright IBM Corp. 2020, 2021. All Rights Reserved.
+ * (C) Copyright IBM Corp. 2020, 2022. All Rights Reserved.
  * US Government Users Restricted Rights - Use, duplication or disclosure
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
+#include <assert.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include <sstream>
+
 #include "WrappedVsam.h"
 #include "VsamThread.h"
-#include <sstream>
-#include <unistd.h>
+
 
 Napi::FunctionReference WrappedVsam::constructor_;
 
@@ -24,7 +29,7 @@ static void throwError(const Napi::CallbackInfo &info, int errArgNum,
 #endif
   Napi::Env env = info.Env();
   if (errArgNum >= 0 && firstArgType != ARG0_TYPE_NONE) {
-    for (int i = 0; i < info.Length(); i++) {
+    for (size_t i = 0; i < info.Length(); i++) {
       if (!info[i].IsFunction())
         continue;
       Napi::Function cb = info[i].As<Napi::Function>();
@@ -345,7 +350,7 @@ Napi::Object WrappedVsam::Construct(const Napi::CallbackInfo &info,
   int key_i = 0; // for its data type - default to first field if no "key" found
   int curpos = 0, keypos = 0;
 
-  for (int i = 0; i < properties.Length(); ++i) {
+  for (size_t i = 0; i < properties.Length(); ++i) {
     std::string name(static_cast<std::string>(
         Napi::String(env, properties.Get(i).ToString())));
 
@@ -912,7 +917,6 @@ Napi::Value WrappedVsam::FindSync_(const Napi::CallbackInfo &info,
 Napi::Value WrappedVsam::FindEqSync(const Napi::CallbackInfo &info) {
   Napi::HandleScope scope(info.Env());
   UvWorkData *pdata = nullptr;
-  int rc;
   if ((info.Length() == 2 && info[0].IsObject() && info[1].IsNumber()) ||
       (info.Length() == 1 && info[0].IsString())) {
     if (Find(info, __KEY_EQ, "findSync", -1, &pdata, ARG0_TYPE_NONE))
@@ -1018,7 +1022,7 @@ int WrappedVsam::Find(const Napi::CallbackInfo &info, int equality,
   Napi::HandleScope scope(info.Env());
   std::string key;
   char *keybuf = nullptr;
-  int keybuf_len = 0;
+  size_t keybuf_len = 0;
   int key_i = pVsamFile_->getKeyNum();
   std::vector<LayoutItem> &layout = pVsamFile_->getLayout();
   std::string errmsg;

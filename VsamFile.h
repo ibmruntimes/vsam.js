@@ -1,6 +1,6 @@
 /*
  * Licensed Materials - Property of IBM
- * (C) Copyright IBM Corp. 2017, 2021. All Rights Reserved.
+ * (C) Copyright IBM Corp. 2017, 2022. All Rights Reserved.
  * US Government Users Restricted Rights - Use, duplication or disclosure
  * restricted by GSA ADP Schedule Contract with IBM Corp.
  */
@@ -31,23 +31,23 @@ struct LayoutItem {
   enum DataType { STRING, HEXADECIMAL };
 
   std::string name;
-  int minLength;
-  int maxLength;
+  size_t minLength;
+  size_t maxLength;
   DataType type;
-  LayoutItem(std::string &n, int mn, int mx, DataType t)
+  LayoutItem(std::string &n, size_t mn, size_t mx, DataType t)
       : name(n), minLength(mn), maxLength(mx), type(t) {}
 };
 
 struct FieldToUpdate {
-  int offset;
-  int len;
+  size_t offset;
+  size_t len;
 #ifdef DEBUG
   std::string name;
   LayoutItem::DataType type;
-  FieldToUpdate(int ofs, int len, const std::string &nm, LayoutItem::DataType t)
+  FieldToUpdate(size_t ofs, size_t len, const std::string &nm, LayoutItem::DataType t)
       : offset(ofs), len(len), name(nm), type(t) {}
 #else
-  FieldToUpdate(int ofs, int len) : offset(ofs), len(len) {}
+  FieldToUpdate(size_t ofs, size_t len) : offset(ofs), len(len) {}
 #endif
 };
 
@@ -57,12 +57,12 @@ class VsamFile;
 struct UvWorkData {
   UvWorkData(VsamFile *pVsamFile, Napi::Function cbfunc, Napi::Env env,
              const std::string &path = "", char *recbuf = nullptr,
-             char *keybuf = nullptr, int keybuf_len = 0, int equality = 0,
+             char *keybuf = nullptr, size_t keybuf_len = 0, int equality = 0,
              std::vector<FieldToUpdate> *pFieldsToUpdate = nullptr)
       : pVsamFile_(pVsamFile), cb_(Napi::Persistent(cbfunc)), env_(env),
         path_(path), recbuf_(recbuf), keybuf_(keybuf), keybuf_len_(keybuf_len),
-        equality_(equality), pFieldsToUpdate_(pFieldsToUpdate), count_(0),
-        rc_(1) {}
+        equality_(equality), pFieldsToUpdate_(pFieldsToUpdate), rc_(1),
+        count_(1) {}
 
   ~UvWorkData() {
     if (recbuf_) {
@@ -85,11 +85,11 @@ struct UvWorkData {
   std::string path_;
   char *recbuf_;
   char *keybuf_;
-  int keybuf_len_;
+  size_t keybuf_len_;
   int equality_;
   std::vector<FieldToUpdate> *pFieldsToUpdate_;
   int rc_;
-  int count_; // of records updated or deleted to report back
+  size_t count_; // of records updated or deleted to report back
   std::string errmsg_;
 };
 
@@ -117,11 +117,11 @@ typedef struct {
 class VsamFile {
 public:
   VsamFile(const std::string &path, const std::vector<LayoutItem> &layout,
-           int key_i, int keypos, const std::string &omode);
+           int key_i, size_t keypos, const std::string &omode);
   ~VsamFile();
 
   int getKeyNum() const { return key_i_; }
-  int getRecordLength() const { return reclen_; }
+  size_t getRecordLength() const { return reclen_; }
   int getLastError(std::string &errmsg) const {
     errmsg = errmsg_;
     return rc_;
@@ -140,13 +140,13 @@ public:
                              int *perr2 = 0, int *pr15 = 0);
   static bool isStrValid(const LayoutItem &item, const std::string &str,
                          const std::string &errPrefix, std::string &errmsg);
-  static bool isHexBufValid(const LayoutItem &item, const char *buf, int len,
+  static bool isHexBufValid(const LayoutItem &item, const char *buf, size_t len,
                             const std::string &errPrefix, std::string &errmsg);
   static bool isHexStrValid(const LayoutItem &item, const std::string &hexstr,
                             const std::string &errPrefix, std::string &errmsg);
-  static int hexstrToBuffer(char *hexbuf, int buflen, const char *hexstr);
-  static int bufferToHexstr(char *hexstr, int hexstrlen, const char *hexbuf,
-                            int hexbuflen);
+  static size_t hexstrToBuffer(char *hexbuf, size_t buflen, const char *hexstr);
+  static size_t bufferToHexstr(char *hexstr, size_t hexstrlen, const char *hexbuf,
+                            size_t hexbuflen);
 
   /* static because WrappedVsam::Close() delete its VsamFile object */
   static void DeallocExecute(UvWorkData *pdata);
@@ -188,8 +188,8 @@ private:
   int rc_;
   std::string errmsg_;
   int key_i_;
-  int keypos_;
-  unsigned keylen_, reclen_;
+  size_t keypos_;
+  size_t keylen_, reclen_;
 #ifdef DEBUG_CRUD
   // to read the record before delete((err)) for display
   fpos_t freadpos_; // =fgetpos() before fread()

@@ -669,6 +669,7 @@ int WrappedVsam::Write_(const Napi::CallbackInfo &info, const char *pApiName,
                                     Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
+          free(recbuf);
           throwError(info, 0, firstArgType, true, errmsg.c_str());
           return -1;
         }
@@ -678,6 +679,7 @@ int WrappedVsam::Write_(const Napi::CallbackInfo &info, const char *pApiName,
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
+          free(recbuf);
           throwError(info, 0, firstArgType, true, errmsg.c_str());
           return -1;
         }
@@ -685,6 +687,7 @@ int WrappedVsam::Write_(const Napi::CallbackInfo &info, const char *pApiName,
         VsamFile::hexstrToBuffer(fldbuf, i->maxLength, str.c_str());
       }
     } else {
+      free(recbuf);
       throwError(info, 0, firstArgType, true,
                  "%s error: unexpected JSON data type %d for %s.", pApiName,
                  i->type, i->name.c_str());
@@ -778,6 +781,7 @@ int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
   for (auto i = layout.begin(); i != layout.end(); ++i) {
     const Napi::Value &field = record.Get(i->name);
     if (field.IsUndefined()) {
+      free(recbuf);
       throwError(info, 0, firstArgType, true,
                  "%s error: update value for %s has not been set.", pApiName,
                  i->name.c_str());
@@ -788,6 +792,7 @@ int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
+          free(recbuf);
           throwError(info, 0, firstArgType, true, errmsg.c_str());
           return -1;
         }
@@ -796,6 +801,7 @@ int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
+          free(recbuf);
           throwError(info, 0, firstArgType, true, errmsg.c_str());
           return -1;
         }
@@ -803,6 +809,7 @@ int WrappedVsam::Update_(const Napi::CallbackInfo &info, const char *pApiName,
       }
       fldbuf += i->maxLength;
     } else {
+      free(recbuf);
       throwError(info, 0, firstArgType, true,
                  "%s error: unexpected data type %d for %s.", pApiName, i->type,
                  i->name.c_str());
@@ -1186,6 +1193,8 @@ int WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
           static_cast<std::string>(Napi::String(info.Env(), field.ToString()));
       if (i->type == LayoutItem::STRING) {
         if (!VsamFile::isStrValid(*i, str, pApiName, errmsg)) {
+          free(recbuf);
+          delete pupd;
           throwError(info, errArg, firstArgType, true, errmsg.c_str());
           return -1;
         }
@@ -1194,6 +1203,8 @@ int WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
           memcpy(fldbuf, str.c_str(), str.length());
       } else {
         if (!VsamFile::isHexStrValid(*i, str, pApiName, errmsg)) {
+          free(recbuf);
+          delete pupd;
           throwError(info, errArg, firstArgType, true, errmsg.c_str());
           return -1;
         }
@@ -1207,13 +1218,20 @@ int WrappedVsam::FindUpdate_(const Napi::CallbackInfo &info,
 #endif
       fldbuf += i->maxLength;
     } else {
+      free(recbuf);
+      delete pupd;
       throwError(info, errArg, firstArgType, true,
                  "Error: unexpected data type %d.", i->type);
       return -1;
     }
   }
-  return Find(info, __KEY_EQ, pApiName, cbArg, ppdata, firstArgType,
-              FindUpdateExecute, FindUpdateComplete, recbuf, pupd);
+  int rc = Find(info, __KEY_EQ, pApiName, cbArg, ppdata, firstArgType,
+                FindUpdateExecute, FindUpdateComplete, recbuf, pupd);
+  if (rc != 0) {
+    free(recbuf);
+    delete pupd;
+  }
+  return rc;
 }
 
 int WrappedVsam::FindDelete_(const Napi::CallbackInfo &info,

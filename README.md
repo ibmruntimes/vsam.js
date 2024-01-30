@@ -7,9 +7,8 @@ This Node.js module enables an application to read and modify VSAM datasets on z
 This [Node.js](https://nodejs.org/en/) module is available through the [npm registry](https://www.npmjs.com/).
 -->
 
-Before installing, [download and install IBM SDK for Node.js - z/OS](https://www.ibm.com/products/sdk-nodejs-compiler-zos).
-
-Node.js 8.16.2 or higher is required.
+Before installing, [download and install IBM Open Enterprise SDK for Node.js](https://www.ibm.com/docs/en/sdk-nodejs-zos)
+16 or higher. vsam.js v3.1.0 or higher is required for Node.js 18 or higher.
 
 ## Simple to use
 

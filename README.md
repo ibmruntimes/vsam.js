@@ -79,8 +79,9 @@ See [test/schema.json](https://github.com/ibmruntimes/vsam.js/blob/master/test/s
 
 - [Supported Data Types](#supported-data-types)
 - [Dataset Schema JSON File](#dataset-schema-json-file)
-- [Open a VSAM dataset](#open-a-vsam-dataset)
 - [Allocate a VSAM dataset](#allocate-a-vsam-dataset)
+- [Open a VSAM dataset](#open-a-vsam-dataset)
+- [VSAM record-level sharing (RLS)](#rls-support)
 - [Check if a VSAM dataset exists](#check-if-a-vsam-dataset-exists)
 - [Close a VSAM dataset](#close-a-vsam-dataset)
 - [Read a record from a VSAM dataset](#read-a-record-from-a-vsam-dataset)
@@ -149,6 +150,20 @@ var vsamObj = vsam.openSync("VSAM.DATASET.NAME", JSON.parse(fs.readFileSync("sch
 * Usage notes:
   * To open a non-empty dataset in read-only mode, specify "rb,type=record" as the third argument.
   * If the dataset doesn't exist, or on error, this function will throw an exception.
+
+## VSAM record-level sharing (RLS)
+
+To use RLS, the VSAM dataset must have been allocated using IDCAMS utility commands via JCL, ISPF panels, etc., where certain parameters for RLS support must be specified.
+
+To open a VSAM dataset in RLS mode in vsam.js, specify, using the "rls=" keyword, the read integrity file access mode in the optional "mode" argument of `openSync`. For example:
+```js
+const vsam = require("vsam");
+const fs = require("fs");
+var vsamObj = vsam.openSync(dsname,
+                            JSON.parse(fs.readFileSync('path-to-schema.json')),
+                            "rb,type=record,rls=cr");
+```
+For a list of RLS access modes, see https://www.ibm.com/docs/en/zos/3.2.0?topic=pvio-vsam-record-level-sharing-transactional-vsam.
 
 ## Check if a VSAM dataset exists
 

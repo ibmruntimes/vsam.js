@@ -8,7 +8,7 @@ This [Node.js](https://nodejs.org/en/) module is available through the [npm regi
 -->
 
 Before installing, [download and install IBM Open Enterprise SDK for Node.js](https://www.ibm.com/docs/en/sdk-nodejs-zos)
-16 or higher. vsam.js v3.1.0 or higher is required for Node.js 18 or higher.
+20 or higher. vsam.js v3.1.6 or higher is required for Node.js 26 or higher.
 
 ## Simple to use
 

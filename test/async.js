@@ -15,8 +15,7 @@ const { execSync } = require('child_process');
 // Set IBM_VSAM_UID environment variable for customer uid
 const uid = process.env.IBM_VSAM_UID || execSync('whoami').slice(0, -1);
 const testSet = `${uid}.TEST2.VSAM.KSDS2`;
-const lmt =  process.version.split('.')[0] === 'v12' ? " - see FIXME re delay with the 2 promises tests" : "";
-const title = `VSAM Key Sequenced Dataset - async APIs${lmt}`
+const title = 'VSAM Key Sequenced Dataset - async APIs';
 
 function readUntilEnd(file, done) {
   var end = false;
@@ -423,14 +422,7 @@ describe(title, function() {
     });
   });
 
-  //
-  // FIXME(gabylb): even though all 4 promises resolve/reject in the expected time
-  // (and DONE-* displayed), it may take too long (~30 seconds) for Promise.all() to return.
-  // This happens only when the block below is run in mocha and Node version v12.
-  // With Node v8, those test time out, but pass when run outside of mocha.
-
-  if (process.version.split('.')[0] !== 'v8') {
-   it("run multiple read-only transactions async", function() {
+  it("run multiple read-only transactions async", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/schema.json')),
                              "rb,type=record");
@@ -490,8 +482,7 @@ describe(title, function() {
       assert.ifError(err);
       expect(file.close()).to.not.throw;
     })
-   });
-  }
+  });
 
   it("delete existing record, then find it and verify error, then delete it and verify error", function(done) {
     var file = vsam.openSync(testSet,
@@ -915,14 +906,7 @@ describe(title, function() {
     readUntilEnd(file, done);
   });
 
-  // FIXME(gabylb): even though all 3 promises resolve/reject in the expected time
-  // (and DONE-* displayed), it may take too long (~30 seconds) for Promise.all() to return.
-  // This happens only when the block below is run in mocha and Node version v12.
-  // With Node v8, those test time out, but pass when run outside of mocha.
-  //
-
-  if (process.version.split('.')[0] !== 'v8') {
-   it("run multiple find-update transactions async", function() {
+  it("run multiple find-update transactions async", function() {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/schema.json')));
 
@@ -966,9 +950,9 @@ describe(title, function() {
       assert.ifError(err);
       expect(file.close()).to.not.throw;
     })
-   });
+  });
 
-   it("write back a records to enable above test run in a loop if needed", function(done) {
+  it("write back a records to enable above test run in a loop if needed", function(done) {
     var file = vsam.openSync(testSet,
                              JSON.parse(fs.readFileSync('test/schema.json')));
     record = { key: "a3", name: "NAME 72347", amount: "f1a2a3f4c5" };
@@ -977,8 +961,7 @@ describe(title, function() {
       expect(file.close()).to.not.throw;
       done();
     });
-   });
-}
+  });
 
   it("reads all records until the end", function(done) {
     var file = vsam.openSync(testSet,

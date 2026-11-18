@@ -78,10 +78,11 @@ void WrappedVsam::DefaultComplete(uv_work_t *req, int status) {
   Napi::HandleScope scope(pdata->env_);
   DCHECK(pdata->cb_ != nullptr && pdata->env_ != nullptr);
   if (pdata->rc_ != 0)
-    pdata->cb_.Call(pdata->env_.Global(),
-                    {Napi::String::New(pdata->env_, pdata->errmsg_)});
+    pdata->cb_.MakeCallback(
+        pdata->env_.Global(),
+        {Napi::String::New(pdata->env_, pdata->errmsg_)});
   else
-    pdata->cb_.Call(pdata->env_.Global(), {pdata->env_.Null()});
+    pdata->cb_.MakeCallback(pdata->env_.Global(), {pdata->env_.Null()});
   delete pdata;
 }
 
@@ -97,11 +98,11 @@ void WrappedVsam::FindUpdateComplete(uv_work_t *req, int status) {
   DCHECK(pdata->cb_ != nullptr && pdata->env_ != nullptr);
   if (pdata->rc_ != 0)
     // even on error, 1 or more records may have been updated before the error
-    pdata->cb_.Call(pdata->env_.Global(),
-                    {Napi::Number::New(pdata->env_, pdata->count_),
-                     Napi::String::New(pdata->env_, pdata->errmsg_)});
+    pdata->cb_.MakeCallback(pdata->env_.Global(),
+                            {Napi::Number::New(pdata->env_, pdata->count_),
+                             Napi::String::New(pdata->env_, pdata->errmsg_)});
   else
-    pdata->cb_.Call(
+    pdata->cb_.MakeCallback(
         pdata->env_.Global(),
         {Napi::Number::New(pdata->env_, pdata->count_), pdata->env_.Null()});
 
@@ -164,21 +165,22 @@ void WrappedVsam::ReadComplete(uv_work_t *req, int status) {
   Napi::HandleScope scope(pdata->env_);
   DCHECK(pdata->cb_ != nullptr && pdata->env_ != nullptr);
   if (pdata->rc_ != 0) {
-    pdata->cb_.Call(
+    pdata->cb_.MakeCallback(
         pdata->env_.Global(),
         {pdata->env_.Null(), Napi::String::New(pdata->env_, pdata->errmsg_)});
     delete pdata;
     return;
   }
   if (pdata->recbuf_ == nullptr) {
-    pdata->cb_.Call(pdata->env_.Global(),
-                    {pdata->env_.Null(), pdata->env_.Null()});
+    pdata->cb_.MakeCallback(pdata->env_.Global(),
+                            {pdata->env_.Null(), pdata->env_.Null()});
     delete pdata;
     return;
   }
 
   Napi::Value record = createRecordObject(pdata);
-  pdata->cb_.Call(pdata->env_.Global(), {record, pdata->env_.Null()});
+  pdata->cb_.MakeCallback(pdata->env_.Global(),
+                          {record, pdata->env_.Null()});
   delete pdata;
 }
 
